@@ -32,11 +32,7 @@ const FAQ = () => {
     { question: "How do I claim an item?", answer: "If a possible match is found, you will be notified. To officially claim your lost item, you must visit the Student Development and Activities Office (SDAO), where staff will verify ownership before releasing the item. It's free for everyone." },
     { question: "Is it safe to meet the finder?", answer: "For security reasons, FoundLink does not allow direct handovers between students. All found items are stored and released through the SDAO." },
     { question: "What if someone falsely claims an item?", answer: "The SDAO staff will verify ownership (using item details, unique identifiers, or proof) before releasing any item. This ensures fairness and prevents false claims." },
-    { question: "Do I need an account to use FoundLink?", answer: "You can browse without an account, but you'll need one to post or claim items." },
     { question: "Which devices are supported?", answer: "FoundLink works on desktop, tablet, and mobile browsers. A mobile app may also be available." },
-    { question: "Who do I contact for help?", answer: "For technical concerns, reach us through the 'Help & Support' page or email support@foundlink.com. For claiming and item-related concerns, please go directly to the SDAO." },
-    { question: "What should I do if I spot inappropriate content?", answer: "Please report it using the 'Report' button. Our admins review and remove any violations." },
-    { question: "How do I give feedback or suggest improvements?", answer: "We welcome feedback! Use the feedback form inside the platform or contact support." },
   ];
 
   useEffect(() => {

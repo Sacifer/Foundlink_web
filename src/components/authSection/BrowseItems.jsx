@@ -119,53 +119,180 @@ function BrowseItems() {
           </div>
 
           <Row xs={1} sm={2} md={3} lg={4} className="g-4">
-            {filteredItems.map((item) => (
-              <Col key={item.id}>
-                <Card onClick={() => setSelectedItem(item)}
-                  className="h-100 border rounded-4 shadow-sm"
-                  style={{ cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s' }}
-                >
-                  <Card.Img variant="top"
-                    src={item.image_url && item.image_url.trim() !== '' ? item.image_url : noImage}
-                    alt={item.item_name}
-                    style={{ height: '180px', objectFit: 'cover', borderTopLeftRadius: '1rem', borderTopRightRadius: '1rem' }}
-                  />
-                  <Card.Body className="text-center p-3">
-                    <Card.Text className="fw-medium text-dark mb-0">{item.item_name}</Card.Text>
-                  </Card.Body>
-                </Card>
-              </Col>
-            ))}
+            {filteredItems.map((item) => {
+              const isLost = item.type?.toLowerCase() === 'lost';
+              const isFound = item.type?.toLowerCase() === 'found';
+              const cardBgColor = isLost ? '#ffebee' : isFound ? '#e8f5e9' : '#f5f5f5';
+              const borderColor = isLost ? '#ffcdd2' : isFound ? '#c8e6c9' : '#e0e0e0';
+              
+              return (
+                <Col key={item.id}>
+                  <Card onClick={() => setSelectedItem(item)}
+                    className="h-100 rounded-4 shadow-sm"
+                    style={{ 
+                      cursor: 'pointer', 
+                      transition: 'transform 0.2s, box-shadow 0.2s',
+                      backgroundColor: cardBgColor,
+                      border: `2px solid ${borderColor}`,
+                      overflow: 'hidden'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-4px)';
+                      e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
+                    }}
+                  >
+                    <Card.Img variant="top"
+                      src={item.image_url && item.image_url.trim() !== '' ? item.image_url : noImage}
+                      alt={item.item_name}
+                      style={{ height: '180px', objectFit: 'cover' }}
+                    />
+                    <Card.Body className="text-center p-3">
+                      <div className="d-flex justify-content-center align-items-center mb-2">
+                        <span style={{
+                          fontSize: '0.75rem',
+                          fontWeight: '600',
+                          padding: '4px 12px',
+                          borderRadius: '12px',
+                          backgroundColor: isLost ? '#ef5350' : isFound ? '#66bb6a' : '#9e9e9e',
+                          color: 'white',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
+                        }}>
+                          {item.type || 'Unknown'}
+                        </span>
+                      </div>
+                      <Card.Text className="fw-medium text-dark mb-0">{item.item_name}</Card.Text>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              );
+            })}
           </Row>
           {filteredItems.length === 0 && <p className="text-center text-muted mt-4">No items found.</p>}
 
           {selectedItem && (
             <Modal show={true} onHide={() => setSelectedItem(null)} centered size="lg">
-              <Modal.Header closeButton>
-                <Modal.Title>{selectedItem.item_name}</Modal.Title>
+              <Modal.Header closeButton style={{
+                backgroundColor: selectedItem.type?.toLowerCase() === 'lost' ? '#ffebee' : 
+                               selectedItem.type?.toLowerCase() === 'found' ? '#e8f5e9' : '#f5f5f5',
+                borderBottom: `3px solid ${selectedItem.type?.toLowerCase() === 'lost' ? '#ef5350' : 
+                               selectedItem.type?.toLowerCase() === 'found' ? '#66bb6a' : '#9e9e9e'}`
+              }}>
+                <Modal.Title className="d-flex align-items-center gap-2">
+                  <span>{selectedItem.item_name}</span>
+                  <span style={{
+                    fontSize: '0.75rem',
+                    fontWeight: '600',
+                    padding: '4px 12px',
+                    borderRadius: '12px',
+                    backgroundColor: selectedItem.type?.toLowerCase() === 'lost' ? '#ef5350' : 
+                                   selectedItem.type?.toLowerCase() === 'found' ? '#66bb6a' : '#9e9e9e',
+                    color: 'white',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    {selectedItem.type || 'Unknown'}
+                  </span>
+                </Modal.Title>
               </Modal.Header>
-              <Modal.Body className="d-flex flex-wrap">
-                <div style={{ flex: '1 1 200px', marginRight: '20px' }}>
-                  <img src={selectedItem.image_url || noImage}
-                    alt={selectedItem.item_name}
-                    style={{ height: '200px', objectFit: 'cover', width: '100%', borderRadius: '8px' }}
-                  />
-                </div>
-                <div style={{ flex: '2 1 300px' }}>
-                  <p><strong>Type:</strong> {selectedItem.type || 'N/A'}</p>
-                  <p><strong>Status:</strong> {selectedItem.statusValue || 'Pending'}</p>
-                  <p><strong>Category:</strong> {selectedItem.categoryValue || 'N/A'}</p>
-                  <p><strong>Description:</strong> {selectedItem.description || 'N/A'}</p>
-                  <p><strong>Date {selectedItem.type === 'Found' ? 'Found' : 'Lost'}:</strong>{' '}
-                    {selectedItem.date_lost_found?.toDate ? 
-                      selectedItem.date_lost_found.toDate().toLocaleDateString() : 
-                      selectedItem.date_lost_found || 'N/A'}</p>
-                  <p><strong>Location:</strong> {selectedItem.location || 'N/A'}</p>
+              <Modal.Body className="p-4">
+                <div className="d-flex flex-wrap gap-4">
+                  <div style={{ flex: '1 1 250px', minWidth: '250px' }}>
+                    <img src={selectedItem.image_url || noImage}
+                      alt={selectedItem.item_name}
+                      style={{ 
+                        width: '100%', 
+                        height: '250px', 
+                        objectFit: 'cover', 
+                        borderRadius: '12px',
+                        border: `3px solid ${selectedItem.type?.toLowerCase() === 'lost' ? '#ffcdd2' : 
+                               selectedItem.type?.toLowerCase() === 'found' ? '#c8e6c9' : '#e0e0e0'}`
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: '1.5 1 300px' }}>
+                    <div className="mb-3">
+                      <div style={{ 
+                        fontSize: '0.85rem', 
+                        color: '#666', 
+                        fontWeight: '600', 
+                        marginBottom: '4px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>Status</div>
+                      <div style={{ fontSize: '1rem', color: '#333' }}>
+                        <span style={{
+                          padding: '4px 10px',
+                          borderRadius: '8px',
+                          backgroundColor: '#f0f0f0',
+                          fontWeight: '500'
+                        }}>
+                          {selectedItem.statusValue || 'Pending'}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="mb-3">
+                      <div style={{ 
+                        fontSize: '0.85rem', 
+                        color: '#666', 
+                        fontWeight: '600', 
+                        marginBottom: '4px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>Category</div>
+                      <div style={{ fontSize: '1rem', color: '#333' }}>{selectedItem.categoryValue || 'N/A'}</div>
+                    </div>
+                    
+                    <div className="mb-3">
+                      <div style={{ 
+                        fontSize: '0.85rem', 
+                        color: '#666', 
+                        fontWeight: '600', 
+                        marginBottom: '4px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>Description</div>
+                      <div style={{ fontSize: '1rem', color: '#333', lineHeight: '1.5' }}>
+                        {selectedItem.description || 'N/A'}
+                      </div>
+                    </div>
+                    
+                    <div className="mb-3">
+                      <div style={{ 
+                        fontSize: '0.85rem', 
+                        color: '#666', 
+                        fontWeight: '600', 
+                        marginBottom: '4px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>Date {selectedItem.type === 'Found' ? 'Found' : 'Lost'}</div>
+                      <div style={{ fontSize: '1rem', color: '#333' }}>
+                        {selectedItem.date_lost_found?.toDate ? 
+                          selectedItem.date_lost_found.toDate().toLocaleDateString() : 
+                          selectedItem.date_lost_found || 'N/A'}
+                      </div>
+                    </div>
+                    
+                    <div className="mb-3">
+                      <div style={{ 
+                        fontSize: '0.85rem', 
+                        color: '#666', 
+                        fontWeight: '600', 
+                        marginBottom: '4px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>Location</div>
+                      <div style={{ fontSize: '1rem', color: '#333' }}>{selectedItem.location || 'N/A'}</div>
+                    </div>
+                  </div>
                 </div>
               </Modal.Body>
-              <Modal.Footer>
-                <Button variant="secondary" onClick={() => setSelectedItem(null)}>Close</Button>
-              </Modal.Footer>
+
             </Modal>
           )}
         </Container>
