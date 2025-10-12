@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { ListGroup, Badge, Modal, Button } from 'react-bootstrap'
+import { ListGroup, Badge, Modal, Button, Card } from 'react-bootstrap'
 import { useNavigate } from 'react-router-dom'
 import { FiArrowLeft } from 'react-icons/fi'
 import AuthSidebar from './AuthSidebar.jsx'
@@ -7,14 +7,17 @@ import { getAuth, onAuthStateChanged } from 'firebase/auth'
 import { collection, query, where, onSnapshot, doc, updateDoc, orderBy } from 'firebase/firestore'
 import { db } from '../../firebase'
 
+const STATUS_FOR_PICKUP = '/status/Status4' // Firestore reference to Status4
+
 function Notifications() {
   const navigate = useNavigate()
   const auth = getAuth()
 
+  const [userId, setUserId] = useState('')
   const [notifications, setNotifications] = useState([])
+  const [aiMatches, setAiMatches] = useState([])
   const [selectedNotification, setSelectedNotification] = useState(null)
   const [showModal, setShowModal] = useState(false)
-  const [userId, setUserId] = useState('')
 
   // Get current user ID
   useEffect(() => {
@@ -29,18 +32,18 @@ function Notifications() {
     return () => unsubscribeAuth()
   }, [auth, navigate])
 
-  // Fetch notifications from Firestore
+  // Fetch normal notifications
   useEffect(() => {
     if (!userId) return
 
-    const q = query(
+    const notifQuery = query(
       collection(db, 'notifications'),
       where('userId', '==', userId),
-      orderBy('createdAt', 'desc') // <-- fixed field name
+      orderBy('createdAt', 'desc')
     )
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const notifs = querySnapshot.docs.map((docSnap) => {
+    const unsubscribeNotif = onSnapshot(notifQuery, (snapshot) => {
+      const notifs = snapshot.docs.map(docSnap => {
         const data = docSnap.data()
         return {
           id: docSnap.id,
@@ -48,35 +51,59 @@ function Notifications() {
           message: data.message || '',
           read: data.read || false,
           timestamp: data.createdAt?.toDate
-            ? data.createdAt.toDate().toLocaleString('en-US', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true,
-              })
+            ? data.createdAt.toDate().toLocaleString()
             : 'N/A',
+          type: 'normal' // mark type for rendering
         }
       })
       setNotifications(notifs)
-    }, (error) => {
-      console.error('Error fetching notifications:', error)
     })
 
-    return () => unsubscribe()
+    return () => unsubscribeNotif()
   }, [userId])
 
+  // Fetch AI matches related to user's items
+  useEffect(() => {
+    if (!userId) return
+
+    const unsubscribeMatches = onSnapshot(collection(db, 'ai_matches'), (snapshot) => {
+      const matches = snapshot.docs
+        .map(docSnap => {
+          const data = docSnap.data()
+          const ownsLost = data.lostItem?.userId === userId
+          const ownsFound = data.foundItem?.userId === userId
+          if (!ownsLost && !ownsFound) return null
+
+          const item = ownsLost ? data.lostItem : data.foundItem
+          const itemId = ownsLost ? data.lostItemId : data.foundItemId
+
+          return {
+            id: docSnap.id,
+            item_name: item.item_name,
+            description: item.description,
+            image_url: item.image_url,
+            confidence: data.confidence,
+            itemId: itemId,
+            type: 'ai_match' // mark type for rendering
+          }
+        })
+        .filter(Boolean)
+
+      setAiMatches(matches)
+    })
+
+    return () => unsubscribeMatches()
+  }, [userId])
+
+  // Open notification modal
   const handleOpenModal = async (notification) => {
     setSelectedNotification(notification)
     setShowModal(true)
 
-    // Mark as read in Firestore
-    if (!notification.read) {
+    // Mark normal notification as read
+    if (notification.type === 'normal' && !notification.read) {
       try {
-        await updateDoc(doc(db, 'notifications', notification.id), {
-          read: true,
-        })
+        await updateDoc(doc(db, 'notifications', notification.id), { read: true })
       } catch (error) {
         console.error('Error marking notification as read:', error)
       }
@@ -88,13 +115,27 @@ function Notifications() {
     setSelectedNotification(null)
   }
 
+  // Claim item function
+  const handleClaim = async (match) => {
+    try {
+      const itemRef = doc(db, 'items', match.itemId)
+      await updateDoc(itemRef, { status: STATUS_FOR_PICKUP })
+      alert(`Item "${match.item_name}" status updated to For Pickup!`)
+      // Optionally remove claimed match from list
+      setAiMatches(prev => prev.filter(m => m.id !== match.id))
+    } catch (error) {
+      console.error('Error claiming item:', error)
+      alert('Failed to claim item.')
+    }
+  }
+
   return (
     <div
       style={{
         minHeight: '100vh',
         display: 'flex',
         background: 'linear-gradient(180deg, rgba(255, 223, 0, 0.15) 0%, rgba(255, 255, 255, 1) 100%)',
-        fontFamily: 'Outfit, sans-serif',
+        fontFamily: 'Outfit, sans-serif'
       }}
     >
       <AuthSidebar activePage="notifications" />
@@ -109,31 +150,54 @@ function Notifications() {
           <h2 style={{ color: 'var(--bs-primary-custom)', margin: 0 }}>Notifications</h2>
         </div>
 
-        <ListGroup>
+        {/* Normal Notifications */}
+        <h4>General Notifications</h4>
+        <ListGroup className="mb-4">
           {notifications.length === 0 && <p className="text-muted">No notifications available.</p>}
-          {notifications.map((notification) => (
+          {notifications.map(n => (
             <ListGroup.Item
-              key={notification.id}
+              key={n.id}
               action
-              onClick={() => handleOpenModal(notification)}
+              onClick={() => handleOpenModal(n)}
               className="d-flex justify-content-between align-items-start"
             >
               <div className="ms-2 me-auto">
-                <div
-                  style={{
-                    fontWeight: !notification.read ? '700' : '400',
-                    color: !notification.read ? '#000000' : '#00000080',
-                  }}
-                >
-                  {notification.title}
+                <div style={{ fontWeight: !n.read ? '700' : '400', color: !n.read ? '#000' : '#00000080' }}>
+                  {n.title}
                 </div>
-                <small className="text-muted">{notification.timestamp}</small>
+                <small className="text-muted">{n.timestamp}</small>
               </div>
-              {!notification.read && <Badge bg="primary" pill>New</Badge>}
+              {!n.read && <Badge bg="primary" pill>New</Badge>}
             </ListGroup.Item>
           ))}
         </ListGroup>
 
+        {/* AI Match Notifications */}
+        <h4>AI Matches</h4>
+        {aiMatches.length === 0 && <p className="text-muted">No AI matches for your items.</p>}
+        <div className="row g-4">
+          {aiMatches.map(match => (
+            <div key={match.id} className="col-md-4">
+              <Card>
+                <Card.Img
+                  variant="top"
+                  src={match.image_url || 'https://via.placeholder.com/400x300?text=No+Image'}
+                  style={{ height: '200px', objectFit: 'cover' }}
+                />
+                <Card.Body>
+                  <Card.Title>{match.item_name}</Card.Title>
+                  <Card.Text>{match.description}</Card.Text>
+                  <Card.Text>
+                    <strong>Match Confidence:</strong> {match.confidence}%
+                  </Card.Text>
+                  <Button variant="success" onClick={() => handleClaim(match)}>Claim</Button>
+                </Card.Body>
+              </Card>
+            </div>
+          ))}
+        </div>
+
+        {/* Modal for normal notifications */}
         <Modal show={showModal} onHide={handleCloseModal} centered>
           <Modal.Header closeButton>
             <Modal.Title>{selectedNotification?.title}</Modal.Title>

@@ -2,9 +2,9 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import fetch from "node-fetch";
 
-// ===================================================================================
+// =========================
 // INITIAL SETUP
-// ===================================================================================
+// =========================
 if (!admin.apps.length) {
   admin.initializeApp();
 }
@@ -26,14 +26,10 @@ const TEXT_MODEL =
   "https://api-inference.huggingface.co/models/intfloat/multilingual-e5-large";
 const IMAGE_MODEL = "jina-clip-v1";
 
-// ===================================================================================
-// TEXT EMBEDDING (Hugging Face) - Always Fresh
-// ===================================================================================
-async function getTextEmbedding(
-  item: any,
-  itemId?: string,
-  forceRefresh = true
-): Promise<number[]> {
+// =========================
+// TEXT EMBEDDING
+// =========================
+async function getTextEmbedding(item: any, itemId?: string, forceRefresh = true): Promise<number[]> {
   const text = `${item.item_name || ""} ${item.description || ""} ${item.location || ""}`.trim();
   if (!text) return [];
 
@@ -43,10 +39,7 @@ async function getTextEmbedding(
     console.log("🧠 Fetching Hugging Face text embedding...");
     const res = await fetch(TEXT_MODEL, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${HF_TOKEN}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
       body: JSON.stringify({ inputs: text }),
     });
 
@@ -67,14 +60,10 @@ async function getTextEmbedding(
   }
 }
 
-// ===================================================================================
-// IMAGE EMBEDDING (Jina AI) - Optional
-// ===================================================================================
-async function getImageEmbedding(
-  imagePathOrUrl: string,
-  itemId?: string,
-  skip = true
-): Promise<number[]> {
+// =========================
+// IMAGE EMBEDDING (Optional)
+// =========================
+async function getImageEmbedding(imagePathOrUrl: string, itemId?: string, skip = true): Promise<number[]> {
   if (!imagePathOrUrl || skip) return [];
 
   let imageUrl = imagePathOrUrl;
@@ -96,10 +85,7 @@ async function getImageEmbedding(
     console.log("🧩 Fetching Jina image embedding...");
     const res = await fetch("https://api.jina.ai/v1/embeddings", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${JINA_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${JINA_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: IMAGE_MODEL, input: [imageUrl] }),
     });
 
@@ -123,9 +109,9 @@ async function getImageEmbedding(
   }
 }
 
-// ===================================================================================
+// =========================
 // COSINE SIMILARITY
-// ===================================================================================
+// =========================
 function cosineSimilarity(a: number[], b: number[]): number {
   if (!a.length || !b.length || a.length !== b.length) return 0;
   const dot = a.reduce((sum, val, i) => sum + val * b[i], 0);
@@ -134,9 +120,9 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return !normA || !normB ? 0 : dot / (normA * normB);
 }
 
-// ===================================================================================
-// MAIN MATCHING FUNCTION - Text-Driven, Images Optional
-// ===================================================================================
+// =========================
+// MAIN MATCHING FUNCTION
+// =========================
 export async function runMatching(newItem?: any) {
   if (!newItem || newItem.status?.path !== PENDING_STATUS_REF.path) return;
 
@@ -157,7 +143,6 @@ export async function runMatching(newItem?: any) {
     return;
   }
 
-  // Always fresh text embeddings, image embeddings skipped by default
   const textEmbedding = await getTextEmbedding(newItem, newItem.item_id, true);
   const imageEmbedding = await getImageEmbedding(newItem.image_url, newItem.item_id, true);
 
@@ -187,7 +172,6 @@ export async function runMatching(newItem?: any) {
       const textSim = cosineSimilarity(textEmbedding, otherTextEmbedding);
       const imageSim = cosineSimilarity(imageEmbedding, otherImageEmbedding);
 
-      // ⚖️ Adjusted weights: mostly text
       let textWeight = 0.9;
       let imageWeight = 0.1;
       let calibrationFactor = 0.6;
