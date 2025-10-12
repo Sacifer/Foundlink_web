@@ -8,7 +8,6 @@ const MATCHED_STATUS_ID = "Status2"; // Matched status
 
 function AiMatches() {
   const [matches, setMatches] = useState([]);
-  const [sliderValue, setSliderValue] = useState(50);
   const [notification, setNotification] = useState(null);
 
   const showNotification = (message, type = "success") => {
@@ -106,7 +105,7 @@ function AiMatches() {
 
   const approveAll = async () => {
     const filteredMatches = matches.filter(
-      m => m.confidence >= sliderValue && !m.status?.id?.includes(MATCHED_STATUS_ID)
+      m => !m.status?.id?.includes(MATCHED_STATUS_ID)
     );
     if (filteredMatches.length === 0) {
       showNotification("No matches to approve", "warning");
@@ -123,7 +122,7 @@ function AiMatches() {
 
   const rejectAll = async () => {
     const filteredMatches = matches.filter(
-      m => m.confidence >= sliderValue && !m.status?.id?.includes(MATCHED_STATUS_ID)
+      m => !m.status?.id?.includes(MATCHED_STATUS_ID)
     );
     if (filteredMatches.length === 0) {
       showNotification("No matches to reject", "warning");
@@ -139,8 +138,8 @@ function AiMatches() {
   };
 
   const filteredMatches = useMemo(
-    () => matches.filter(m => m.confidence >= sliderValue && !m.status?.id?.includes(MATCHED_STATUS_ID)),
-    [matches, sliderValue]
+    () => matches.filter(m => !m.status?.id?.includes(MATCHED_STATUS_ID)),
+    [matches]
   );
 
   return (
@@ -166,29 +165,13 @@ function AiMatches() {
       {/* Controls */}
       <div className="card shadow-sm mb-4 border-0">
         <div className="card-body p-4">
-          <div className="row g-3 align-items-center">
-            <div className="col-12 col-md-6">
-              <label htmlFor="confidence-slider" className="form-label fw-semibold mb-2">
-                Minimum Confidence: <span className="text-primary">{sliderValue}%</span>
-              </label>
-              <input
-                id="confidence-slider"
-                type="range"
-                className="form-range"
-                min="0"
-                max="100"
-                value={sliderValue}
-                onChange={(e) => setSliderValue(Number(e.target.value))}
-              />
-            </div>
-            <div className="col-12 col-md-6 d-flex gap-2 justify-content-md-end">
-              <button className="btn btn-success" onClick={approveAll}>
-                ✓ Approve All ({filteredMatches.length})
-              </button>
-              <button className="btn btn-danger" onClick={rejectAll}>
-                ✗ Reject All ({filteredMatches.length})
-              </button>
-            </div>
+          <div className="d-flex gap-2 justify-content-end">
+            <button className="btn btn-success" onClick={approveAll}>
+              ✓ Approve All ({filteredMatches.length})
+            </button>
+            <button className="btn btn-danger" onClick={rejectAll}>
+              ✗ Reject All ({filteredMatches.length})
+            </button>
           </div>
         </div>
       </div>
@@ -199,7 +182,7 @@ function AiMatches() {
           <div className="card-body text-center py-5">
             <div style={{ fontSize: "72px", opacity: 0.3 }}>🔍</div>
             <h3 className="text-muted mt-3">No AI matches found</h3>
-            <p className="text-muted">Try adjusting the confidence slider to see more results</p>
+            <p className="text-muted">Check back later for new suggested matches</p>
           </div>
         </div>
       ) : (
