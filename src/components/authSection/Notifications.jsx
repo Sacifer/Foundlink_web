@@ -1,27 +1,29 @@
 import React, { useState, useEffect } from 'react'
-import { ListGroup, Badge, Modal, Button } from 'react-bootstrap'
+import { ListGroup, Badge, Modal, Button, Image } from 'react-bootstrap'
 import { useNavigate } from 'react-router-dom'
 import { FiArrowLeft } from 'react-icons/fi'
 import AuthSidebar from './AuthSidebar.jsx'
 import { getAuth, onAuthStateChanged } from 'firebase/auth'
-import { collection, query, where, onSnapshot, doc, updateDoc, orderBy } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
 
 function Notifications() {
   const navigate = useNavigate()
   const auth = getAuth()
 
+  const [aiMatches, setAiMatches] = useState([])
   const [notifications, setNotifications] = useState([])
-  const [selectedNotification, setSelectedNotification] = useState(null)
+  const [combined, setCombined] = useState([])
+  const [selectedItem, setSelectedItem] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [userId, setUserId] = useState('')
+  const [readAiMatches, setReadAiMatches] = useState([]) // Tracks opened AI matches
 
   // Get current user ID
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUserId(user.uid)
-      } else {
+      if (user) setUserId(user.uid)
+      else {
         setUserId('')
         navigate('/login')
       }
@@ -29,120 +31,178 @@ function Notifications() {
     return () => unsubscribeAuth()
   }, [auth, navigate])
 
-  // Fetch notifications from Firestore
+  // Fetch AI matches and notifications
   useEffect(() => {
     if (!userId) return
 
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc') // <-- fixed field name
-    )
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const notifs = querySnapshot.docs.map((docSnap) => {
-        const data = docSnap.data()
-        return {
-          id: docSnap.id,
-          title: data.title || 'Notification',
-          message: data.message || '',
-          read: data.read || false,
-          timestamp: data.createdAt?.toDate
-            ? data.createdAt.toDate().toLocaleString('en-US', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true,
-              })
-            : 'N/A',
-        }
-      })
-      setNotifications(notifs)
-    }, (error) => {
-      console.error('Error fetching notifications:', error)
+    // AI Matches
+    const matchesQuery = query(collection(db, 'ai_matches'), orderBy('createdAt', 'desc'))
+    const unsubscribeMatches = onSnapshot(matchesQuery, (snapshot) => {
+      const userMatches = snapshot.docs
+        .map(docSnap => ({ id: docSnap.id, type: 'match', ...docSnap.data() }))
+        .filter(match => match.lostItem?.userId === userId || match.foundItem?.userId === userId)
+      setAiMatches(userMatches)
     })
 
-    return () => unsubscribe()
+    // Notifications
+    const notifQuery = query(
+      collection(db, 'notifications'),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    )
+    const unsubscribeNotifs = onSnapshot(notifQuery, (snapshot) => {
+      const notifs = snapshot.docs.map(docSnap => ({ id: docSnap.id, type: 'notif', ...docSnap.data() }))
+      setNotifications(notifs)
+    })
+
+    return () => {
+      unsubscribeMatches()
+      unsubscribeNotifs()
+    }
   }, [userId])
 
-  const handleOpenModal = async (notification) => {
-    setSelectedNotification(notification)
+  // Merge and sort
+  useEffect(() => {
+    const combinedList = [...aiMatches, ...notifications].sort((a, b) => {
+      const aTime = a.createdAt?.toDate?.() || new Date()
+      const bTime = b.createdAt?.toDate?.() || new Date()
+      return bTime - aTime
+    })
+    setCombined(combinedList)
+  }, [aiMatches, notifications])
+
+  // Open modal
+  const handleOpenModal = async (item) => {
+    setSelectedItem(item)
     setShowModal(true)
 
-    // Mark as read in Firestore
-    if (!notification.read) {
+    if (item.type === 'notif' && !item.read) {
       try {
-        await updateDoc(doc(db, 'notifications', notification.id), {
-          read: true,
-        })
-      } catch (error) {
-        console.error('Error marking notification as read:', error)
+        await updateDoc(doc(db, 'notifications', item.id), { read: true })
+      } catch (err) {
+        console.error('Error marking notification as read:', err)
       }
+    }
+
+    if (item.type === 'match') {
+      setReadAiMatches(prev => [...prev, item.id])
     }
   }
 
   const handleCloseModal = () => {
+    setSelectedItem(null)
     setShowModal(false)
-    setSelectedNotification(null)
+  }
+
+  // Verify AI match
+  const handleVerify = async (match) => {
+    if (!match) return
+    try {
+      const verifiedStatusRef = doc(db, 'status', 'Status4')
+      await updateDoc(doc(db, 'ai_matches', match.id), { status: verifiedStatusRef })
+      if (match.lostItemId) await updateDoc(doc(db, 'items', match.lostItemId), { status: verifiedStatusRef })
+      if (match.foundItemId) await updateDoc(doc(db, 'items', match.foundItemId), { status: verifiedStatusRef })
+      alert('Match verified successfully!')
+      setShowModal(false)
+      setSelectedItem(null)
+    } catch (err) {
+      console.error(err)
+      alert('Failed to verify match')
+    }
+  }
+
+  // Deny AI match
+  const handleDeny = async (match) => {
+    if (!match) return
+    try {
+      const pendingStatusRef = doc(db, 'status', 'Status1')
+      if (match.lostItemId) await updateDoc(doc(db, 'items', match.lostItemId), { status: pendingStatusRef })
+      if (match.foundItemId) await updateDoc(doc(db, 'items', match.foundItemId), { status: pendingStatusRef })
+      await deleteDoc(doc(db, 'ai_matches', match.id))
+      alert('Match denied and items reverted to pending')
+      setShowModal(false)
+      setSelectedItem(null)
+    } catch (err) {
+      console.error(err)
+      alert('Failed to deny match')
+    }
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        background: 'linear-gradient(180deg, rgba(255, 223, 0, 0.15) 0%, rgba(255, 255, 255, 1) 100%)',
-        fontFamily: 'Outfit, sans-serif',
-      }}
-    >
+    <div style={{ minHeight: '100vh', display: 'flex', fontFamily: 'Outfit, sans-serif', background: 'linear-gradient(180deg, rgba(255, 223, 0, 0.15) 0%, rgba(255, 255, 255, 1) 100%)' }}>
       <AuthSidebar activePage="notifications" />
-
       <div style={{ flex: 1, padding: '2rem', marginLeft: '240px' }}>
-        <div
-          className="d-flex align-items-center mb-4"
-          style={{ cursor: 'pointer' }}
-          onClick={() => navigate('/student-dashboard')}
-        >
+        <div className="d-flex align-items-center mb-4" style={{ cursor: 'pointer' }} onClick={() => navigate('/student-dashboard')}>
           <FiArrowLeft size={24} className="me-3" />
           <h2 style={{ color: 'var(--bs-primary-custom)', margin: 0 }}>Notifications</h2>
         </div>
 
         <ListGroup>
-          {notifications.length === 0 && <p className="text-muted">No notifications available.</p>}
-          {notifications.map((notification) => (
-            <ListGroup.Item
-              key={notification.id}
-              action
-              onClick={() => handleOpenModal(notification)}
-              className="d-flex justify-content-between align-items-start"
-            >
-              <div className="ms-2 me-auto">
-                <div
-                  style={{
-                    fontWeight: !notification.read ? '700' : '400',
-                    color: !notification.read ? '#000000' : '#00000080',
-                  }}
-                >
-                  {notification.title}
-                </div>
-                <small className="text-muted">{notification.timestamp}</small>
-              </div>
-              {!notification.read && <Badge bg="primary" pill>New</Badge>}
-            </ListGroup.Item>
-          ))}
+          {combined.length === 0 && <p className="text-muted">No notifications or matches yet.</p>}
+          {combined.map(item => {
+            if (item.type === 'match') {
+              const isOwnerLost = item.lostItem?.userId === userId
+              const matchItem = isOwnerLost ? item.lostItem : item.foundItem
+              const isNew = !readAiMatches.includes(item.id)
+              return (
+                <ListGroup.Item key={item.id} action onClick={() => handleOpenModal(item)} className="d-flex justify-content-between align-items-start">
+                  <div className="ms-2 me-auto">
+                    <div style={{ fontWeight: '700' }}>Your item "{matchItem?.item_name}" has been matched!</div>
+                    <small className="text-muted">Confidence: {item.confidence}%</small>
+                  </div>
+                  {isNew && <Badge bg="success" pill>New</Badge>}
+                </ListGroup.Item>
+              )
+            } else if (item.type === 'notif') {
+              return (
+                <ListGroup.Item key={item.id} action onClick={() => handleOpenModal(item)} className="d-flex justify-content-between align-items-start">
+                  <div className="ms-2 me-auto">
+                    <div style={{ fontWeight: item.read ? '400' : '700' }}>{item.title}</div>
+                    <small className="text-muted">{item.message}</small>
+                  </div>
+                  {!item.read && <Badge bg="primary" pill>New</Badge>}
+                </ListGroup.Item>
+              )
+            }
+            return null
+          })}
         </ListGroup>
 
-        <Modal show={showModal} onHide={handleCloseModal} centered>
+        <Modal show={showModal} onHide={handleCloseModal} centered size="lg">
           <Modal.Header closeButton>
-            <Modal.Title>{selectedNotification?.title}</Modal.Title>
+            <Modal.Title>{selectedItem?.type === 'match' ? 'Match Details' : selectedItem?.title}</Modal.Title>
           </Modal.Header>
           <Modal.Body>
-            <p>{selectedNotification?.message}</p>
-            <small className="text-muted">{selectedNotification?.timestamp}</small>
+            {selectedItem?.type === 'match' && (
+              <div className="d-flex flex-column gap-3">
+                {/* Lost Item */}
+                <div style={{ border: '1px solid #ccc', padding: '1rem', borderRadius: '8px' }}>
+                  <h6>Lost Item</h6>
+                  <p><strong>{selectedItem.lostItem?.item_name}</strong></p>
+                  <p>{selectedItem.lostItem?.description}</p>
+                  {selectedItem.lostItem?.image_url ? <Image src={selectedItem.lostItem.image_url} fluid rounded /> : <p className="text-muted">No image available</p>}
+                </div>
+
+                {/* Found Item */}
+                <div style={{ border: '1px solid #ccc', padding: '1rem', borderRadius: '8px' }}>
+                  <h6>Found Item</h6>
+                  <p><strong>{selectedItem.foundItem?.item_name}</strong></p>
+                  <p>{selectedItem.foundItem?.description}</p>
+                  {selectedItem.foundItem?.image_url ? <Image src={selectedItem.foundItem.image_url} fluid rounded /> : <p className="text-muted">No image available</p>}
+                </div>
+
+                <p><strong>Confidence:</strong> {selectedItem.confidence}%</p>
+              </div>
+            )}
+            {selectedItem?.type === 'notif' && <p>{selectedItem.message}</p>}
           </Modal.Body>
           <Modal.Footer>
+            {selectedItem?.type === 'match' && (
+              <>
+                <Button variant="success" onClick={() => handleVerify(selectedItem)}>Verify</Button>
+                <Button variant="danger" onClick={() => handleDeny(selectedItem)}>Deny</Button>
+              </>
+            )}
             <Button variant="secondary" onClick={handleCloseModal}>Close</Button>
           </Modal.Footer>
         </Modal>
