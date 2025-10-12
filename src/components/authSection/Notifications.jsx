@@ -17,9 +17,20 @@ function Notifications() {
   const [selectedItem, setSelectedItem] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [userId, setUserId] = useState('')
-  const [readAiMatches, setReadAiMatches] = useState([]) // Tracks opened AI matches
+  const [readAiMatches, setReadAiMatches] = useState([])
+  const [toast, setToast] = useState(null)
 
-  // Get current user ID
+  // Status IDs
+  const MATCHED_STATUS_ID = 'Status2'
+  const VERIFIED_STATUS_ID = 'Status4'
+
+  // Helper for toast notifications
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  // Get current user
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) setUserId(user.uid)
@@ -31,12 +42,19 @@ function Notifications() {
     return () => unsubscribeAuth()
   }, [auth, navigate])
 
-  // Fetch AI matches and notifications
+  // Fetch AI matches for logged-in user (status Matched or Verified)
   useEffect(() => {
     if (!userId) return
 
-    // AI Matches
-    const matchesQuery = query(collection(db, 'ai_matches'), orderBy('createdAt', 'desc'))
+    const matchedStatusRef = doc(db, 'status', MATCHED_STATUS_ID)
+    const verifiedStatusRef = doc(db, 'status', VERIFIED_STATUS_ID)
+
+    const matchesQuery = query(
+      collection(db, 'ai_matches'),
+      where('status', 'in', [matchedStatusRef, verifiedStatusRef]),
+      orderBy('createdAt', 'desc')
+    )
+
     const unsubscribeMatches = onSnapshot(matchesQuery, (snapshot) => {
       const userMatches = snapshot.docs
         .map(docSnap => ({ id: docSnap.id, type: 'match', ...docSnap.data() }))
@@ -44,24 +62,28 @@ function Notifications() {
       setAiMatches(userMatches)
     })
 
-    // Notifications
+    return () => unsubscribeMatches()
+  }, [userId])
+
+  // Fetch normal notifications
+  useEffect(() => {
+    if (!userId) return
+
     const notifQuery = query(
       collection(db, 'notifications'),
       where('userId', '==', userId),
       orderBy('createdAt', 'desc')
     )
+
     const unsubscribeNotifs = onSnapshot(notifQuery, (snapshot) => {
       const notifs = snapshot.docs.map(docSnap => ({ id: docSnap.id, type: 'notif', ...docSnap.data() }))
       setNotifications(notifs)
     })
 
-    return () => {
-      unsubscribeMatches()
-      unsubscribeNotifs()
-    }
+    return () => unsubscribeNotifs()
   }, [userId])
 
-  // Merge and sort
+  // Merge & sort
   useEffect(() => {
     const combinedList = [...aiMatches, ...notifications].sort((a, b) => {
       const aTime = a.createdAt?.toDate?.() || new Date()
@@ -84,9 +106,7 @@ function Notifications() {
       }
     }
 
-    if (item.type === 'match') {
-      setReadAiMatches(prev => [...prev, item.id])
-    }
+    if (item.type === 'match') setReadAiMatches(prev => [...prev, item.id])
   }
 
   const handleCloseModal = () => {
@@ -98,16 +118,16 @@ function Notifications() {
   const handleVerify = async (match) => {
     if (!match) return
     try {
-      const verifiedStatusRef = doc(db, 'status', 'Status4')
+      const verifiedStatusRef = doc(db, 'status', VERIFIED_STATUS_ID)
       await updateDoc(doc(db, 'ai_matches', match.id), { status: verifiedStatusRef })
       if (match.lostItemId) await updateDoc(doc(db, 'items', match.lostItemId), { status: verifiedStatusRef })
       if (match.foundItemId) await updateDoc(doc(db, 'items', match.foundItemId), { status: verifiedStatusRef })
-      alert('Match verified successfully!')
+      showToast('Match verified successfully!', 'success')
       setShowModal(false)
       setSelectedItem(null)
     } catch (err) {
       console.error(err)
-      alert('Failed to verify match')
+      showToast('Failed to verify match', 'danger')
     }
   }
 
@@ -119,12 +139,12 @@ function Notifications() {
       if (match.lostItemId) await updateDoc(doc(db, 'items', match.lostItemId), { status: pendingStatusRef })
       if (match.foundItemId) await updateDoc(doc(db, 'items', match.foundItemId), { status: pendingStatusRef })
       await deleteDoc(doc(db, 'ai_matches', match.id))
-      alert('Match denied and items reverted to pending')
+      showToast('Match denied and items reverted to pending', 'success')
       setShowModal(false)
       setSelectedItem(null)
     } catch (err) {
       console.error(err)
-      alert('Failed to deny match')
+      showToast('Failed to deny match', 'danger')
     }
   }
 
@@ -135,6 +155,19 @@ function Notifications() {
         <div className="d-flex align-items-center mb-4" style={{ cursor: 'pointer' }} onClick={() => navigate('/student-dashboard')}>
           <FiArrowLeft size={24} className="me-3" />
           <h2 style={{ color: 'var(--bs-primary-custom)', margin: 0 }}>Notifications</h2>
+        </div>
+
+        {/* Mark All AI Matches as Read */}
+        <div className="d-flex justify-content-between align-items-center mb-3">
+          <h5>Notifications & Matches</h5>
+          <Button 
+            size="sm" 
+            variant="outline-primary"
+            onClick={() => setReadAiMatches(aiMatches.map(m => m.id))}
+            disabled={aiMatches.length === 0}
+          >
+            Mark All AI Matches as Read
+          </Button>
         </div>
 
         <ListGroup>
@@ -168,6 +201,23 @@ function Notifications() {
           })}
         </ListGroup>
 
+        {/* Floating Toast */}
+        {toast && (
+          <div
+            className={`position-fixed top-0 end-0 m-3 alert alert-${toast.type} alert-dismissible fade show`}
+            role="alert"
+            style={{
+              zIndex: 9999,
+              minWidth: '300px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              animation: 'slideInRight 0.3s ease-out'
+            }}
+          >
+            <strong>{toast.message}</strong>
+            <button type="button" className="btn-close" onClick={() => setToast(null)}></button>
+          </div>
+        )}
+
         <Modal show={showModal} onHide={handleCloseModal} centered size="lg">
           <Modal.Header closeButton>
             <Modal.Title>{selectedItem?.type === 'match' ? 'Match Details' : selectedItem?.title}</Modal.Title>
@@ -191,7 +241,7 @@ function Notifications() {
                   {selectedItem.foundItem?.image_url ? <Image src={selectedItem.foundItem.image_url} fluid rounded /> : <p className="text-muted">No image available</p>}
                 </div>
 
-                <p><strong>Confidence:</strong> {selectedItem.confidence}%</p>
+                <p>Confidence: {selectedItem.confidence}%</p>
               </div>
             )}
             {selectedItem?.type === 'notif' && <p>{selectedItem.message}</p>}
