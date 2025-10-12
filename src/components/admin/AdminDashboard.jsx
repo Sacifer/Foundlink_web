@@ -13,7 +13,7 @@ export default function AdminDashboard() {
     users: 0,
     items: 0,
     aiMatches: 0,
-    forPickup: 0,
+    verified: 0,
   });
 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -31,37 +31,37 @@ export default function AdminDashboard() {
         console.log("Items count:", itemsSnapshot.size);
         console.log("AI Matches count:", aiSnapshot.size);
 
-        let forPickupCount = 0;
+        let verifiedCount = 0;
 
         try {
-          const forPickupStatusRef = doc(db, "status", "Status4");
-          const forPickupStatusDoc = await getDoc(forPickupStatusRef);
+          const verifiedStatusRef = doc(db, "status", "Status4");
+          const verifiedStatusDoc = await getDoc(verifiedStatusRef);
           
-          if (forPickupStatusDoc.exists()) {
-            const statusName = forPickupStatusDoc.data().status_name;
-            console.log("For Pickup Status name:", statusName);
+          if (verifiedStatusDoc.exists()) {
+            const statusName = verifiedStatusDoc.data().status_name;
+            console.log("Verified Status name:", statusName);
 
-            if (statusName === "For Pickup") {
-              const forPickupQuery = query(
+            if (statusName === "Verified") {
+              const verifiedQuery = query(
                 collection(db, "items"),
-                where("status", "==", forPickupStatusRef)
+                where("status", "==", verifiedStatusRef)
               );
-              const forPickupSnapshot = await getDocs(forPickupQuery);
-              forPickupCount = forPickupSnapshot.size;
-              console.log("For Pickup count:", forPickupCount);
+              const verifiedSnapshot = await getDocs(verifiedQuery);
+              verifiedCount = verifiedSnapshot.size;
+              console.log("Verified count:", verifiedCount);
             }
           } else {
-            console.warn("For Pickup status document does not exist");
+            console.warn("Verified status document does not exist");
           }
-        } catch (forPickupError) {
-          console.error("Error fetching for pickup count:", forPickupError);
+        } catch (verifiedError) {
+          console.error("Error fetching verified count:", verifiedError);
         }
 
         setStats({
           users: usersSnapshot.size,
           items: itemsSnapshot.size,
           aiMatches: aiSnapshot.size,
-          forPickup: forPickupCount,
+          verified: verifiedCount,
         });
 
         try {
@@ -121,7 +121,7 @@ export default function AdminDashboard() {
             <div className="row mb-5">
               <div className="col-12 text-center">
                 <h1 className="display-3 fw-bold mb-3" style={{ color: "#263054", letterSpacing: "-1px" }}>
-                  Welcome to Admin Dashboard
+                  Welcome to Administrator Dashboard
                 </h1>
                 <p className="lead text-muted fs-4">
                   Monitor and manage your lost and found system
@@ -223,7 +223,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* For Pickup Items Card */}
+              {/* Verified Items Card */}
               <div className="col-12 col-md-6 col-xl-3">
                 <div 
                   className="card border-0 shadow-lg h-100 overflow-hidden position-relative"
@@ -245,10 +245,10 @@ export default function AdminDashboard() {
                     ✅
                   </div>
                   <div className="card-body text-white p-4 position-relative" style={{ zIndex: 1 }}>
-                    <p className="text-uppercase small fw-semibold mb-2 opacity-75">For Pickup</p>
-                    <h2 className="display-2 fw-bold mb-0">{stats.forPickup}</h2>
+                    <p className="text-uppercase small fw-semibold mb-2 opacity-75">Verified</p>
+                    <h2 className="display-2 fw-bold mb-0">{stats.verified}</h2>
                     <div className="mt-3 pt-3 border-top border-white border-opacity-25">
-                      <small className="opacity-75">Ready for collection</small>
+                      <small className="opacity-75">Verified items</small>
                     </div>
                   </div>
                 </div>

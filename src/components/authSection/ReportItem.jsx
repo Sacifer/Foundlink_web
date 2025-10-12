@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Container, Row, Col, Form, Button, Card, Alert, Modal } from 'react-bootstrap'
+import { Container, Row, Col, Form, Button, Card, Alert } from 'react-bootstrap'
 import AuthSidebar from './AuthSidebar.jsx'
 import noImage from '../../assets/noimage.png'
 import { getAuth } from 'firebase/auth'
-import { collection, addDoc, getDocs, serverTimestamp, doc, getDoc } from 'firebase/firestore'
+import { collection, addDoc, serverTimestamp, doc } from 'firebase/firestore'
 import { db, storage } from '../../firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 
 function ReportItem() {
-    const [successMessage, setSuccessMessage] = useState('');
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [submittedType, setSubmittedType] = useState('');
     const [loading, setLoading] = useState(false);
     const [itemType, setItemType] = useState('lost');
     const [imageFile, setImageFile] = useState(null);
     const [category, setCategory] = useState('Cat1');
+    const [uploadProgress, setUploadProgress] = useState('');
     const auth = getAuth();
     const navigate = useNavigate();
 
@@ -33,7 +33,7 @@ function ReportItem() {
         const file = e.target.files[0];
         if (file) {
             // Check file type
-            const allowedTypes = ['image/jpeg', 'image/png'];
+            const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg'];
             if (!allowedTypes.includes(file.type)) {
                 alert('Only JPEG and PNG images are allowed.');
                 e.target.value = '';
@@ -48,79 +48,120 @@ function ReportItem() {
                 return;
             }
             
+            console.log('✅ Image selected:', file.name, 'Size:', file.size, 'bytes');
             setImageFile(file);
         }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        
+        console.log('🚀 Starting submission...');
+        
         if (!auth.currentUser) {
             alert('You must be logged in to submit a report.');
             return;
         }
 
         setLoading(true);
-        const formData = new FormData(e.target);
-        const rawItemName = formData.get('itemName').trim();
-        const rawDescription = formData.get('description').trim();
-        const location = formData.get('location').trim();
-        const dateField = itemType === 'found' ? formData.get('dateFound') : formData.get('dateLost');
-
-        let imageUrl = '';
-        if (imageFile) {
-            try {
-                const storageRef = ref(storage, `reports/${auth.currentUser.uid}_${Date.now()}_${imageFile.name}`);
-                await uploadBytes(storageRef, imageFile);
-                imageUrl = await getDownloadURL(storageRef);
-            } catch (error) {
-                console.error('Error uploading image:', error);
-                alert('Failed to upload image. Please try again.');
-                setLoading(false);
-                return;
-            }
-        }
-
-        // Convert date string to Firestore Timestamp if provided
-        let dateTimestamp = serverTimestamp();
-        if (dateField) {
-            const dateObj = new Date(dateField);
-            dateTimestamp = dateObj;
-        }
-
-        const reportData = {
-            userId: auth.currentUser.uid, // ✅ User ID from logged-in user
-            type: itemType === 'lost' ? 'Lost' : 'Found',
-            item_name: rawItemName,
-            description: rawDescription,
-            date_lost_found: dateTimestamp,
-            location: location || '',
-            tags: [],
-            image_url: imageUrl,
-            category: doc(db, 'categories', category),
-            status: doc(db, 'status', 'Status1'),
-        };
+        setUploadProgress('Preparing data...');
 
         try {
-            await addDoc(collection(db, 'items'), reportData);
+            const formData = new FormData(e.target);
+            const rawItemName = formData.get('itemName').trim();
+            const rawDescription = formData.get('description').trim();
+            const location = formData.get('location').trim();
+            const dateField = itemType === 'found' ? formData.get('dateFound') : formData.get('dateLost');
+
+            console.log('📝 Form data collected');
+
+            let imageUrl = '';
+            
+            // Upload image if exists
+            if (imageFile) {
+                try {
+                    setUploadProgress('Uploading image...');
+                    console.log('📤 Starting image upload...');
+                    console.log('Storage object:', storage);
+                    
+                    const timestamp = Date.now();
+                    const fileName = `${auth.currentUser.uid}_${timestamp}_${imageFile.name}`;
+                    const storageRef = ref(storage, `reports/${fileName}`);
+                    
+                    console.log('📍 Storage path:', storageRef.fullPath);
+                    
+                    // Upload with timeout
+                    const uploadPromise = uploadBytes(storageRef, imageFile);
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Upload timeout after 30 seconds')), 30000)
+                    );
+                    
+                    await Promise.race([uploadPromise, timeoutPromise]);
+                    console.log('✅ Upload complete');
+                    
+                    setUploadProgress('Getting image URL...');
+                    imageUrl = await getDownloadURL(storageRef);
+                    console.log('🔗 Image URL obtained:', imageUrl);
+                    
+                } catch (uploadError) {
+                    console.error('❌ Image upload error:', uploadError);
+                    alert('Failed to upload image: ' + uploadError.message + '\n\nTrying to submit without image...');
+                    imageUrl = ''; // Continue without image
+                }
+            }
+
+            // Convert date
+            setUploadProgress('Saving to database...');
+            let dateTimestamp = serverTimestamp();
+            if (dateField) {
+                const dateObj = new Date(dateField);
+                if (!isNaN(dateObj.getTime())) {
+                    dateTimestamp = dateObj;
+                }
+            }
+
+            const reportData = {
+                userId: auth.currentUser.uid,
+                type: itemType === 'lost' ? 'Lost' : 'Found',
+                item_name: rawItemName,
+                description: rawDescription,
+                date_lost_found: dateTimestamp,
+                location: location || '',
+                tags: [],
+                image_url: imageUrl,
+                category: doc(db, 'categories', category),
+                status: doc(db, 'status', 'Status1'),
+                created_at: serverTimestamp(),
+            };
+
+            console.log('💾 Saving to Firestore...');
+            const docRef = await addDoc(collection(db, 'items'), reportData);
+            console.log('✅ Document saved with ID:', docRef.id);
             
             // Store the type for the success modal
             setSubmittedType(itemType);
-            
-            console.log('Report submitted successfully with userId:', auth.currentUser.uid);
             
             // Clear form
             e.target.reset();
             setImageFile(null);
             setItemType('lost');
             setCategory('Cat1');
+            setUploadProgress('');
             
             // Show success modal
             setShowSuccessModal(true);
+            
         } catch (error) {
-            console.error('Error submitting report:', error);
-            alert('Failed to submit report. Please try again.');
+            console.error('❌ Submission error:', error);
+            console.error('Error details:', {
+                message: error.message,
+                code: error.code,
+                stack: error.stack
+            });
+            alert('Failed to submit report: ' + error.message);
         } finally {
             setLoading(false);
+            setUploadProgress('');
         }
     };
 
@@ -140,6 +181,13 @@ function ReportItem() {
                             <Card className="shadow-sm p-4 rounded-4 font-poppins" style={{ backgroundColor: '#FCFBF6', color: 'var(--bs-primary-custom)' }}>
                                 <Card.Body>
                                     <h2 className="mb-4 text-center fw-medium fs-5">Report Item</h2>
+
+                                    {/* Show upload progress */}
+                                    {uploadProgress && (
+                                        <Alert variant="info" className="text-center">
+                                            {uploadProgress}
+                                        </Alert>
+                                    )}
 
                                     <Form onSubmit={handleSubmit}>
                                         <Form.Group as={Row} className="mb-3 align-items-center">
@@ -202,7 +250,13 @@ function ReportItem() {
                                                 {itemType === 'found' ? 'Date Found:' : 'Date Lost:'}<span className="text-danger ms-1">*</span>
                                             </Form.Label>
                                             <Col sm={9}>
-                                                <Form.Control type="date" name={itemType === 'found' ? 'dateFound' : 'dateLost'} required className="rounded-3" />
+                                                <Form.Control 
+                                                    type="date" 
+                                                    name={itemType === 'found' ? 'dateFound' : 'dateLost'} 
+                                                    required 
+                                                    className="rounded-3"
+                                                    max={new Date().toISOString().split('T')[0]}
+                                                />
                                             </Col>
                                         </Form.Group>
 
@@ -220,16 +274,24 @@ function ReportItem() {
                                         </Form.Group>
 
                                         <Form.Group as={Row} className="mb-3 align-items-center">
-                                            <Col sm={{ span: 9, offset: 3 }}>
+                                            <Form.Label column sm={3} className="text-end">
+                                                Image:
+                                            </Form.Label>
+                                            <Col sm={9}>
                                                 <Form.Control 
                                                     type="file" 
-                                                    accept="image/jpeg,image/png" 
+                                                    accept="image/jpeg,image/png,image/jpg" 
                                                     onChange={handleImageChange} 
                                                     className="rounded-3" 
                                                 />
                                                 <Form.Text className="text-muted">
-                                                    Only JPEG and PNG files. Max size: 5MB
+                                                    Only JPEG and PNG files. Max size: 5MB (Optional)
                                                 </Form.Text>
+                                                {imageFile && (
+                                                    <div className="mt-2 text-success">
+                                                        ✓ Selected: {imageFile.name}
+                                                    </div>
+                                                )}
                                             </Col>
                                         </Form.Group>
 
@@ -244,8 +306,10 @@ function ReportItem() {
                                                     color: 'var(--bs-primary-custom)',
                                                 }}
                                                 onMouseEnter={(e) => {
-                                                    e.currentTarget.style.backgroundColor = 'var(--bs-primary-custom)';
-                                                    e.currentTarget.style.color = 'white';
+                                                    if (!loading) {
+                                                        e.currentTarget.style.backgroundColor = 'var(--bs-primary-custom)';
+                                                        e.currentTarget.style.color = 'white';
+                                                    }
                                                 }}
                                                 onMouseLeave={(e) => {
                                                     e.currentTarget.style.backgroundColor = 'transparent';

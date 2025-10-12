@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { 
-  getFirestore, collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, addDoc, serverTimestamp 
+  collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, addDoc, serverTimestamp 
 } from "firebase/firestore";
 import app, { db } from "../../firebase.js";
 
-const MATCHED_STATUS_ID = "Status2"; // Replace with your actual matched status ID
+const MATCHED_STATUS_ID = "Status2"; // Matched status
 
 function AiMatches() {
   const [matches, setMatches] = useState([]);
@@ -31,15 +31,31 @@ function AiMatches() {
     return "danger";
   };
 
-  // Send notification to user
-  const sendNotificationToUser = async (userId, matchData) => {
+  // Send notification to user with FULL match data structure
+  const sendNotificationToUser = async (userId, match) => {
     try {
+      // Send the complete match data as a structured notification
       await addDoc(collection(db, "notifications"), {
         userId: userId,
+        type: "match", // Important: mark as match type
         title: "Match Found!",
-        message: `Your item "${matchData.item_name}" has been matched!`,
-        matchId: matchData.matchId,
-        itemId: matchData.itemId,
+        matchId: match.id,
+        // Include complete match details
+        lostItem: {
+          item_name: match.lostItem?.item_name || "Unknown",
+          description: match.lostItem?.description || "No description",
+          image_url: match.lostItem?.image_url || "",
+          userId: match.lostItem?.userId || ""
+        },
+        foundItem: {
+          item_name: match.foundItem?.item_name || "Unknown",
+          description: match.foundItem?.description || "No description",
+          image_url: match.foundItem?.image_url || "",
+          userId: match.foundItem?.userId || ""
+        },
+        lostItemId: match.lostItemId || "",
+        foundItemId: match.foundItemId || "",
+        confidence: match.confidence || 0,
         read: false,
         createdAt: serverTimestamp(),
       });
@@ -48,49 +64,24 @@ function AiMatches() {
     }
   };
 
-  // Approve single match with notifications
   const approveMatch = async (match, isBulk = false) => {
     try {
       const matchRef = doc(db, "ai_matches", match.id);
       const matchedStatusRef = doc(db, "status", MATCHED_STATUS_ID);
 
-      // Update match status
       await updateDoc(matchRef, { status: matchedStatusRef });
 
-      // Update lost item and send notification
+      // Update items individually and send notification if the item belongs to a user
       if (match.lostItemId && match.lostItem) {
         const lostRef = doc(db, "items", match.lostItemId);
         await updateDoc(lostRef, { status: matchedStatusRef });
-        
-        // Send notification to lost item owner
-        if (match.lostItem.userId) {
-          await sendNotificationToUser(
-            match.lostItem.userId,
-            {
-              matchId: match.id,
-              itemId: match.lostItemId,
-              item_name: match.lostItem.item_name
-            }
-          );
-        }
+        if (match.lostItem.userId) await sendNotificationToUser(match.lostItem.userId, match);
       }
 
-      // Update found item and send notification
       if (match.foundItemId && match.foundItem) {
         const foundRef = doc(db, "items", match.foundItemId);
         await updateDoc(foundRef, { status: matchedStatusRef });
-        
-        // Send notification to found item owner
-        if (match.foundItem.userId) {
-          await sendNotificationToUser(
-            match.foundItem.userId,
-            {
-              matchId: match.id,
-              itemId: match.foundItemId,
-              item_name: match.foundItem.item_name
-            }
-          );
-        }
+        if (match.foundItem.userId) await sendNotificationToUser(match.foundItem.userId, match);
       }
 
       setMatches(prev => prev.filter(m => m.id !== match.id));
@@ -101,7 +92,6 @@ function AiMatches() {
     }
   };
 
-  // Reject single match
   const rejectMatch = async (matchId, isBulk = false) => {
     try {
       const matchRef = doc(db, "ai_matches", matchId);
@@ -114,7 +104,6 @@ function AiMatches() {
     }
   };
 
-  // Bulk approve
   const approveAll = async () => {
     const filteredMatches = matches.filter(
       m => m.confidence >= sliderValue && !m.status?.id?.includes(MATCHED_STATUS_ID)
@@ -123,7 +112,6 @@ function AiMatches() {
       showNotification("No matches to approve", "warning");
       return;
     }
-
     try {
       await Promise.all(filteredMatches.map(match => approveMatch(match, true)));
       showNotification(`${filteredMatches.length} matches approved and users notified!`, "success");
@@ -133,7 +121,6 @@ function AiMatches() {
     }
   };
 
-  // Bulk reject
   const rejectAll = async () => {
     const filteredMatches = matches.filter(
       m => m.confidence >= sliderValue && !m.status?.id?.includes(MATCHED_STATUS_ID)
@@ -142,7 +129,6 @@ function AiMatches() {
       showNotification("No matches to reject", "warning");
       return;
     }
-
     try {
       await Promise.all(filteredMatches.map(match => rejectMatch(match.id, true)));
       showNotification(`${filteredMatches.length} matches rejected!`, "success");

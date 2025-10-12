@@ -317,39 +317,67 @@ export default function ItemManagement() {
 
   async function handleAddItem(e) {
     e.preventDefault();
+    
     if (!newItem.item_name || !newItem.category || !newItem.description || !newItem.date_lost_found) {
       return alert("Please fill all required fields");
     }
-
+  
+    if (!auth.currentUser) {
+      alert('You must be logged in to add an item.');
+      return;
+    }
+  
     try {
+      console.log('🚀 Starting item addition...');
+      
       const categoryRef = doc(db, "categories", newItem.category);
       const statusRef = doc(db, "status", "Status1");
-
-
+  
       let imageUrl = null;
+      
+      // Upload image if exists
       if (imageFile) {
-        const allowedTypes = ["image/png", "image/jpeg"];
+        console.log('📤 Starting image upload...');
+        console.log('Image file:', imageFile.name, 'Size:', imageFile.size, 'bytes');
+        
+        const allowedTypes = ["image/png", "image/jpeg", "image/jpg"];
         if (!allowedTypes.includes(imageFile.type)) {
           alert("Only PNG and JPEG files are allowed!");
           return;
         }
+        
         const maxSize = 5 * 1024 * 1024;
         if (imageFile.size > maxSize) {
           alert("File is too large! Please upload an image under 5MB.");
           return;
         }
-
-        const fileName = `${Date.now()}-${imageFile.name}`;
-        const storageRef = ref(storage, `items/${fileName}`);
-        await uploadBytes(storageRef, imageFile);
-        imageUrl = await getDownloadURL(storageRef);
+  
+        try {
+          const fileName = `${Date.now()}-${imageFile.name}`;
+          const storageRef = ref(storage, `items/${fileName}`);
+          
+          console.log('📍 Storage path:', storageRef.fullPath);
+          
+          // Upload with timeout
+          const uploadPromise = uploadBytes(storageRef, imageFile);
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Upload timeout after 30 seconds')), 30000)
+          );
+          
+          await Promise.race([uploadPromise, timeoutPromise]);
+          console.log('✅ Upload complete');
+          
+          imageUrl = await getDownloadURL(storageRef);
+          console.log('🔗 Image URL:', imageUrl);
+          
+        } catch (uploadError) {
+          console.error('❌ Image upload error:', uploadError);
+          alert('Failed to upload image: ' + uploadError.message + '\n\nContinuing without image...');
+          imageUrl = null; // Continue without image
+        }
       }
-
-      if (!auth.currentUser) {
-        alert('You must be logged in to add an item.');
-        return;
-      }
-
+  
+      console.log('💾 Saving to Firestore...');
       await addDoc(collection(db, "items"), {
         item_name: newItem.item_name,
         category: categoryRef,
@@ -357,21 +385,29 @@ export default function ItemManagement() {
         description: newItem.description,
         date_lost_found: Timestamp.fromDate(new Date(newItem.date_lost_found)),
         type: newItem.type,
-        userId: auth.currentUser.uid,  // ✅ CHANGED TO userId
+        userId: auth.currentUser.uid,
         status: statusRef,
         archived: false,
         createdAt: Timestamp.now(),
         ...(imageUrl ? { image_url: imageUrl } : {}),
       });
-
+      
+      console.log('✅ Item added successfully!');
+  
       setAddModalOpen(false);
       setNewItem({ item_name: "", category: "", description: "", location: "", date_lost_found: "", type: "Lost" });
       setImageFile(null);
       await fetchItems();
       showToast("Item added successfully!", "success");
+      
     } catch (err) {
-      console.error("Error adding item", err);
-      alert("Failed to add item");
+      console.error("❌ Error adding item:", err);
+      console.error('Error details:', {
+        message: err.message,
+        code: err.code,
+        stack: err.stack
+      });
+      alert("Failed to add item: " + err.message);
     }
   }
 
@@ -717,7 +753,7 @@ export default function ItemManagement() {
   const activeItems = items.filter((i) => !i.archived).length;
   const pending = items.filter((i) => !i.archived && (i.status_name?.toLowerCase() === "pending" || (typeof i.status === "string" && i.status.toLowerCase() === "pending"))).length;
   const matched = items.filter((i) => !i.archived && i.status_name?.toLowerCase() === "matched").length;
-  const forPickup = items.filter((i) => !i.archived && i.status_name?.toLowerCase() === "for pickup").length;
+  const forPickup = items.filter((i) => !i.archived && i.status_name?.toLowerCase() === "verified").length;
   const claimed = items.filter((i) => !i.archived && i.status_name?.toLowerCase() === "claimed").length;
 
   const getDisplayName = (item) => item.item_name || item.item_names || "Unnamed";
@@ -830,7 +866,7 @@ export default function ItemManagement() {
                   <option>All</option>
                   <option>Pending</option>
                   <option>Matched</option>
-                  <option>For Pickup</option>
+                  <option>Verified</option>
                 </select>
               </div>
               <div className="col-12 col-md-6 col-lg-auto">
