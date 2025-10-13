@@ -24,13 +24,6 @@ export default function ItemManagement() {
 
   const auth = getAuth();
 
-  const [contactModalOpen, setContactModalOpen] = useState(false);
-  const [contactItem, setContactItem] = useState(null);
-  const [contactMessage, setContactMessage] = useState("");
-  const [contactMessageTemplate, setContactMessageTemplate] = useState("");
-  const [editableMessage, setEditableMessage] = useState("");
-  const [sending, setSending] = useState(false);
-
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isBulkDelete, setIsBulkDelete] = useState(false);
@@ -274,31 +267,11 @@ export default function ItemManagement() {
     setSelectedIds(new Set());
   }, [filteredItems]);
 
-  async function sendNotification(userId, itemId, message) {
-    if (!userId) {
-      console.error("Missing user ID. Cannot send notification.");
-      return false;
-    }
-
-    try {
-      await addDoc(collection(db, "notifications"), {
-        user_id: userId,
-        item_id: itemId,
-        message: message || "",
-        read: false,
-        createdAt: Timestamp.now(),
-      });
-      return true;
-    } catch (err) {
-      console.error("Failed to send notification:", err);
-      return false;
-    }
-  }
-
   async function fetchStatusOptions() {
     try {
       const snap = await getDocs(collection(db, "status"));
       const opts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      console.log("📊 Fetched status options:", opts);
       setStatusOptions(opts);
     } catch (err) {
       console.error("fetchStatusOptions error", err);
@@ -457,6 +430,27 @@ export default function ItemManagement() {
     setEditForm((prev) => ({ ...prev, [name]: value }));
   }
 
+  async function sendNotification(userId, itemId, message) {
+    if (!userId) {
+      console.error("Missing user ID. Cannot send notification.");
+      return false;
+    }
+
+    try {
+      await addDoc(collection(db, "notifications"), {
+        user_id: userId,
+        item_id: itemId,
+        message: message || "",
+        read: false,
+        createdAt: Timestamp.now(),
+      });
+      return true;
+    } catch (err) {
+      console.error("Failed to send notification:", err);
+      return false;
+    }
+  }
+
   async function saveEdit() {
     if (!editItem) return;
     try {
@@ -478,101 +472,34 @@ export default function ItemManagement() {
 
       await updateDoc(itemRef, updatePayload);
 
+      // Check if status has changed and send notification
+      const oldStatusId = editItem.status_id || editItem.status;
+      const newStatusId = editForm.status;
+      
+      if (oldStatusId !== newStatusId && statusIsFetchedId) {
+        const newStatusDoc = await getDoc(doc(db, "status", newStatusId));
+        if (newStatusDoc.exists()) {
+          const newStatusName = newStatusDoc.data().status_name || newStatusDoc.data().name || "updated";
+          const message = `The status of your item "${editItem.item_name}" has been updated to: ${newStatusName}`;
+          
+          const userId = editItem.userId || editItem.user_id;
+          if (userId) {
+            await sendNotification(userId, editItem.id, message);
+            showToast("Item updated and notification sent!", "success");
+          } else {
+            showToast("Item updated successfully!", "success");
+          }
+        }
+      } else {
+        showToast("Item updated successfully!", "success");
+      }
+
       await fetchItems();
       setEditModalOpen(false);
       setEditItem(null);
     } catch (err) {
       console.error("Error saving edit", err);
-      alert("Failed to update item");
-    }
-  }
-
-  function openContactModal(item) {
-    setContactItem(item);
-    setContactMessage("");
-    setContactMessageTemplate("");
-    setEditableMessage("");
-    setContactModalOpen(true);
-  }
-
-  const getMessagePreview = () => {
-    if (!contactItem) return "";
-    
-    if (editableMessage) return editableMessage;
-    
-    if (!contactMessageTemplate) return "";
-    
-    switch (contactMessageTemplate) {
-      case "item_successfully_claimed":
-        return `Congratulations! Your item "${contactItem.item_name}" has been successfully claimed and verified.`;
-      case "item_ready_pickup":
-        return `Your item "${contactItem.item_name}" is ready for pickup! Please visit the lost and found office during business hours with a valid ID.`;
-      case "item_verification_needed":
-        return `We need additional verification for your item "${contactItem.item_name}". Please provide more details or proof of ownership to proceed.`;
-      case "item_more_info_needed":
-        return `We need more information about your item "${contactItem.item_name}". Please provide additional details such as distinguishing features, color, or brand.`;
-      case "item_expiring_soon":
-        return `Reminder: Your item "${contactItem.item_name}" will be removed from the system in 7 days if not claimed. Please claim it as soon as possible.`;
-      case "item_under_review":
-        return `Your item "${contactItem.item_name}" is currently under review. We will notify you once the verification process is complete.`;
-      case "item_false_report":
-        return `Your report for "${contactItem.item_name}" has been flagged as invalid or incorrect. Please contact support if you believe this is an error.`;
-      default:
-        return "";
-    }
-  };
-
-  async function sendContactMessage() {
-    if (!contactItem) return;
-    if (!contactMessageTemplate) return alert("Select a template first");
-    setSending(true);
-
-    try {
-      let message = editableMessage;
-      
-      if (!message) {
-        switch (contactMessageTemplate) {
-          case "item_successfully_claimed":
-            message = `Congratulations! Your item "${contactItem.item_name}" has been successfully claimed and verified. Thank you for using our lost and found system.`;
-            break;
-          case "item_ready_pickup":
-            message = `Your item "${contactItem.item_name}" is ready for pickup! Please visit the lost and found office during business hours with a valid ID.`;
-            break;
-          case "item_verification_needed":
-            message = `We need additional verification for your item "${contactItem.item_name}". Please provide more details or proof of ownership to proceed.`;
-            break;
-          case "item_more_info_needed":
-            message = `We need more information about your item "${contactItem.item_name}". Please provide additional details such as distinguishing features, color, or brand.`;
-            break;
-          case "item_expiring_soon":
-            message = `Reminder: Your item "${contactItem.item_name}" will be removed from the system in 7 days if not claimed. Please claim it as soon as possible.`;
-            break;
-          case "item_under_review":
-            message = `Your item "${contactItem.item_name}" is currently under review. We will notify you once the verification process is complete.`;
-            break;
-          case "item_false_report":
-            message = `Your report for "${contactItem.item_name}" has been flagged as invalid or incorrect. Please contact support if you believe this is an error.`;
-            break;
-          default:
-            message = contactMessageTemplate;
-        }
-      }
-
-      const success = await sendNotification(contactItem.userId || contactItem.user_id || contactItem.user || "unknown", contactItem.id, message);
-
-      if (success) {
-        alert("Message sent successfully!");
-        setContactModalOpen(false);
-        setContactMessageTemplate("");
-        setEditableMessage("");
-      } else {
-        alert("Failed to send message.");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Failed to send message.");
-    } finally {
-      setSending(false);
+      showToast("Failed to update item", "error");
     }
   }
 
@@ -955,7 +882,6 @@ export default function ItemManagement() {
         </div>
       ) : filteredItems.length > 0 ? (
         filteredItems.map((item) => {
-          // 🔍 Type-safe values to prevent Firestore object errors - using safer extraction
           const safeType = item.type_name 
             ? safeString(item.type_name, "Unknown")
             : safeString(item.type, "Unknown");
@@ -1123,7 +1049,7 @@ export default function ItemManagement() {
                   <div className="card-footer bg-white border-0 p-3">
                     <div className="d-grid gap-2">
                       <div className="row g-2">
-                        <div className="col-6">
+                        <div className="col-4">
                           <button
                             className="btn btn-outline-success w-100"
                             onClick={() => bulkResolveSelectedSingle(item.id)}
@@ -1131,7 +1057,7 @@ export default function ItemManagement() {
                             ✓ Resolve
                           </button>
                         </div>
-                        <div className="col-6">
+                        <div className="col-4">
                           <button
                             className="btn btn-outline-primary w-100"
                             onClick={() => openEditModal(item)}
@@ -1139,17 +1065,7 @@ export default function ItemManagement() {
                             ✎ Edit
                           </button>
                         </div>
-                      </div>
-                      <div className="row g-2">
-                        <div className="col-6">
-                          <button
-                            className="btn btn-outline-info w-100"
-                            onClick={() => openContactModal(item)}
-                          >
-                            📧 Contact
-                          </button>
-                        </div>
-                        <div className="col-6">
+                        <div className="col-4">
                           <button
                             className="btn btn-outline-danger w-100"
                             onClick={() => openArchiveModal(item.id)}
@@ -1206,73 +1122,6 @@ export default function ItemManagement() {
         >
           +
         </button>
-      )}
-
-      {contactModalOpen && contactItem && (
-        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} key="contact-modal">
-          <div className="modal-dialog modal-dialog-centered modal-lg">
-            <div className="modal-content border-0 shadow">
-              <div className="modal-header border-0 pb-0">
-                <h5 className="modal-title fw-bold">📧 Contact Reporter</h5>
-                <button type="button" className="btn-close" onClick={() => setContactModalOpen(false)}></button>
-              </div>
-              <div className="modal-body pt-2">
-                <div className="alert alert-light border">
-                  <div className="mb-2"><strong>Item:</strong> {contactItem.item_name || "Unnamed Item"}</div>
-                  <div><strong>Reporter:</strong> {contactItem.user_name || "Unknown"}</div>
-                </div>
-                
-                <label className="form-label fw-semibold">Select Message Template:</label>
-                <select
-                  className="form-select mb-3"
-                  value={contactMessageTemplate}
-                  onChange={(e) => {
-                    setContactMessageTemplate(e.target.value);
-                    setEditableMessage("");
-                  }}
-                >
-                  <option value="">-- Choose a template --</option>
-                  <optgroup label="✅ Positive Updates">
-                    <option value="item_successfully_claimed">Item Successfully Claimed</option>
-                    <option value="item_ready_pickup">Ready for Pickup</option>
-                  </optgroup>
-                  <optgroup label="📋 Action Required">
-                    <option value="item_verification_needed">Verification Needed</option>
-                    <option value="item_more_info_needed">More Information Required</option>
-                  </optgroup>
-                  <optgroup label="⏰ Time-Sensitive">
-                    <option value="item_expiring_soon">Expiring Soon (7 Days)</option>
-                  </optgroup>
-                  <optgroup label="🔄 Status Updates">
-                    <option value="item_under_review">Under Review</option>
-                  </optgroup>
-                  <optgroup label="⚠️ Issues">
-                    <option value="item_false_report">Invalid Report</option>
-                  </optgroup>
-                </select>
-
-                {contactMessageTemplate && (
-                  <div className="alert alert-info">
-                    <strong>Message Preview (Editable):</strong>
-                    <textarea 
-                      className="form-control mt-2" 
-                      rows="4"
-                      value={editableMessage || getMessagePreview()}
-                      onChange={(e) => setEditableMessage(e.target.value)}
-                      placeholder="Edit message here..."
-                    />
-                  </div>
-                )}
-              </div>
-              <div className="modal-footer border-0">
-                <button type="button" className="btn btn-secondary" onClick={() => setContactModalOpen(false)}>Cancel</button>
-                <button type="button" className="btn btn-success" onClick={sendContactMessage} disabled={sending || !contactMessageTemplate}>
-                  {sending ? "Sending..." : "Send Message"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
 
       {resolveModalOpen && (
@@ -1337,7 +1186,7 @@ export default function ItemManagement() {
             <div className="modal-content border-0 shadow">
               <div className="modal-header border-0 pb-0 bg-success text-white">
                 <h5 className="modal-title fw-bold">↺ Confirm Restore</h5>
-                <button type="button" className="btn-close btn-close-white" onClick={() => setResolveModalOpen(false)}></button>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setRestoreModalOpen(false)}></button>
               </div>
               <div className="modal-body pt-3">
                 <p className="mb-0">
@@ -1553,16 +1402,11 @@ export default function ItemManagement() {
                     {statusOptions.length > 0 ? (
                       <>
                         <option value="">Select status</option>
-                        {statusOptions
-                          .filter((s) => {
-                            const statusName = (s.status_name || s.name || "").toLowerCase();
-                            return statusName !== "claimed";
-                          })
-                          .map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.status_name || s.name || s.id}
-                            </option>
-                          ))}
+                        {statusOptions.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.status_name || s.name || s.id}
+                          </option>
+                        ))}
                         {editItem?.archived && <option value="archived">Archived</option>}
                       </>
                     ) : (
