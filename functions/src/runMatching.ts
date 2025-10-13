@@ -27,6 +27,20 @@ const TEXT_MODEL =
 const IMAGE_MODEL = "jina-clip-v1";
 
 // =========================
+// ACCURACY LEVEL HELPER
+// =========================
+function getAccuracyLevel(confidence: number): string {
+  if (confidence >= 80) {
+    return "accurate";
+  } else if (confidence >= 60) {
+    return "mid";
+  } else if (confidence >= 50) {
+    return "little similarity";
+  }
+  return "no match";
+}
+
+// =========================
 // TEXT EMBEDDING
 // =========================
 async function getTextEmbedding(item: any, itemId?: string, forceRefresh = true): Promise<number[]> {
@@ -153,6 +167,7 @@ export async function runMatching(newItem?: any) {
 
   const batch = db.batch();
   let matchCount = 0;
+  let belowThresholdCount = 0;
 
   await Promise.all(
     oppositeSnap.docs.map(async (doc) => {
@@ -189,7 +204,15 @@ export async function runMatching(newItem?: any) {
         )}%, image=${Math.round(imageSim * 100)}%, adjusted=${confidence}%`
       );
 
+      // Skip matches below 50% threshold
+      if (confidence < 50) {
+        belowThresholdCount++;
+        console.log(`⚠️ Match below 50% threshold (${confidence}%), skipping Firebase save.`);
+        return;
+      }
+
       if (confidence >= MATCH_THRESHOLD) {
+        const accuracyLevel = getAccuracyLevel(confidence);
         const matchRef = db.collection("ai_matches").doc();
         batch.set(matchRef, {
           lostItemId: isFound ? otherId : newItem.item_id,
@@ -197,18 +220,24 @@ export async function runMatching(newItem?: any) {
           lostItem: isFound ? otherItem : newItem,
           foundItem: isFound ? newItem : otherItem,
           confidence,
+          accuracyLevel, // Add accuracy level
           status: PENDING_STATUS_REF,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         matchCount++;
+        console.log(`✅ Match added with ${accuracyLevel} accuracy (${confidence}%)`);
       }
     })
   );
 
   if (matchCount > 0) {
     await batch.commit();
-    console.log(`🎯 ${matchCount} matches saved.`);
+    console.log(`🎯 ${matchCount} matches saved to Firebase.`);
   } else {
     console.log("❌ No valid matches met threshold.");
+  }
+
+  if (belowThresholdCount > 0) {
+    console.log(`🚫 ${belowThresholdCount} matches were below 50% and not saved.`);
   }
 }

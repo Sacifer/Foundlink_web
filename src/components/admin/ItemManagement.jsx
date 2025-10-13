@@ -438,10 +438,12 @@ export default function ItemManagement() {
 
     try {
       await addDoc(collection(db, "notifications"), {
-        user_id: userId,
+        userId: userId,
         item_id: itemId,
+        title: "Item Status Update",
         message: message || "",
         read: false,
+        type: "notif",
         createdAt: Timestamp.now(),
       });
       return true;
@@ -794,6 +796,7 @@ export default function ItemManagement() {
                   <option>Pending</option>
                   <option>Matched</option>
                   <option>Verified</option>
+                  <option>Claimed</option>
                 </select>
               </div>
               <div className="col-12 col-md-6 col-lg-auto">
