@@ -327,7 +327,7 @@ export default function ItemManagement() {
   
         try {
           const fileName = `${Date.now()}-${imageFile.name}`;
-          const storageRef = ref(storage, `items/${fileName}`);
+          const storageRef = ref(storage, `reports/${fileName}`);
           
           console.log('📍 Storage path:', storageRef.fullPath);
           

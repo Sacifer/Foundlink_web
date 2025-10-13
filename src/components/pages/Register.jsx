@@ -1,88 +1,116 @@
+// src/components/pages/Register.jsx
+
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Container, Form, Button, Image, Alert } from 'react-bootstrap'
-import { createUserWithEmailAndPassword, sendEmailVerification, GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
-import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore'
+import {
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut, // ✅ added
+} from 'firebase/auth'
+import {
+  doc,
+  setDoc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+} from 'firebase/firestore'
 import { auth, db } from '../../firebase.js'
 import google from '../../assets/google.png'
 
 function Register({ show = true, onHide, onSwitchToSignIn }) {
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [formData, setFormData] = useState({
     email: '',
     username: '',
     password: '',
     confirmPassword: '',
-  });
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  })
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
   const [passwordChecks, setPasswordChecks] = useState({
     length: false,
     lowercase: false,
     uppercase: false,
     number: false,
     special: false,
-  });
-  const [showPasswordRequirements, setShowPasswordRequirements] = useState(false); // ✅ new
+  })
+  const [showPasswordRequirements, setShowPasswordRequirements] = useState(false)
+  const [registered, setRegistered] = useState(false)
 
-  const navigate = useNavigate();
+  const navigate = useNavigate()
 
   const handleClose = () => {
-    if (typeof onHide === 'function') onHide();
-  };
+    if (typeof onHide === 'function') onHide()
+  }
 
+  // ✅ Force sign out any logged-in user (like admin) when opening Register modal
+  useEffect(() => {
+    if (show) {
+      signOut(auth).catch((err) => console.error('Sign-out failed:', err))
+    }
+  }, [show])
+
+  // Reset form when modal is closed
   useEffect(() => {
     if (!show) {
-      setFormData({ email: '', username: '', password: '', confirmPassword: '' });
-      setError('');
-      setMessage('');
-      setShowPassword(false);
-      setShowConfirmPassword(false);
-      setLoading(false);
+      setFormData({ email: '', username: '', password: '', confirmPassword: '' })
+      setError('')
+      setMessage('')
+      setShowPassword(false)
+      setShowConfirmPassword(false)
+      setLoading(false)
       setPasswordChecks({
         length: false,
         lowercase: false,
         uppercase: false,
         number: false,
         special: false,
-      });
-      setShowPasswordRequirements(false);
+      })
+      setShowPasswordRequirements(false)
+      setRegistered(false)
     }
-  }, [show]);
+  }, [show])
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape') handleClose();
-    };
-    if (show) window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [show]);
+      if (e.key === 'Escape') handleClose()
+    }
+    if (show) window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [show])
 
+  // ✅ Watch for email verification only after registration
   useEffect(() => {
-    if (!show) return;
+    if (!show || !registered) return
+
     const intervalId = setInterval(async () => {
-      const user = auth.currentUser;
+      const user = auth.currentUser
       if (user) {
-        await user.reload();
+        await user.reload()
         if (user.emailVerified) {
-          const userDocRef = doc(db, 'users', user.uid);
-          const userSnapshot = await getDoc(userDocRef);
+          const userDocRef = doc(db, 'users', user.uid)
+          const userSnapshot = await getDoc(userDocRef)
 
           if (userSnapshot.exists()) {
-            const role = userSnapshot.data().role || 'user';
-            await setDoc(userDocRef, { verified: true }, { merge: true });
-            clearInterval(intervalId);
-            handleClose();
-            navigate(role === 'admin' ? '/admin-dashboard' : '/student-dashboard');
+            const role = userSnapshot.data().role || 'user'
+            await setDoc(userDocRef, { verified: true }, { merge: true })
+            clearInterval(intervalId)
+            handleClose()
+            navigate(role === 'admin' ? '/admin-dashboard' : '/student-dashboard')
           }
         }
       }
-    }, 3000);
+    }, 3000)
 
-    return () => clearInterval(intervalId);
-  }, [navigate, show]);
+    return () => clearInterval(intervalId)
+  }, [navigate, show, registered])
 
   const checkPasswordStrength = (password) => {
     const checks = {
@@ -91,92 +119,86 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
       uppercase: /[A-Z]/.test(password),
       number: /\d/.test(password),
       special: /[\W_]/.test(password),
-    };
-    setPasswordChecks(checks);
-  };
-
-  const togglePasswordVisibility = () => setShowPassword((p) => !p);
-  const toggleConfirmPasswordVisibility = () => setShowConfirmPassword((p) => !p);
+    }
+    setPasswordChecks(checks)
+  }
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const { name, value } = e.target
+    setFormData((prev) => ({ ...prev, [name]: value }))
 
     if (name === 'password') {
-      checkPasswordStrength(value);
-      setShowPasswordRequirements(true);
+      checkPasswordStrength(value)
+      setShowPasswordRequirements(true)
     }
-  };
+  }
 
   const validateForm = async () => {
-    const { email, username, password, confirmPassword } = formData;
-    const normalizedEmail = email.trim().toLowerCase();
-    const trimmedUsername = username.trim();
+    const { email, username, password, confirmPassword } = formData
+    const normalizedEmail = email.trim().toLowerCase()
+    const trimmedUsername = username.trim()
 
     if (!email || !username || !password || !confirmPassword) {
-      setError('Please fill in all fields.');
-      return false;
+      setError('Please fill in all fields.')
+      return false
     }
 
     if (trimmedUsername.length < 5) {
-      setError('Username must be at least 5 characters long.');
-      return false;
+      setError('Username must be at least 5 characters long.')
+      return false
     }
 
     const passwordRegex =
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/
     if (!passwordRegex.test(password)) {
       setError(
         'Password must include 8 characters with uppercase, lowercase, number, and special character.'
-      );
-      return false;
+      )
+      return false
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return false;
+      setError('Passwords do not match.')
+      return false
     }
 
-    const emailQuery = query(
-      collection(db, 'users'),
-      where('email', '==', normalizedEmail)
-    );
-    const emailSnapshot = await getDocs(emailQuery);
+    const emailQuery = query(collection(db, 'users'), where('email', '==', normalizedEmail))
+    const emailSnapshot = await getDocs(emailQuery)
     if (!emailSnapshot.empty) {
-      setError('This email is already registered. Try signing in.');
-      return false;
+      setError('This email is already registered. Try signing in.')
+      return false
     }
 
-    const usernameQuery = query(
-      collection(db, 'users'),
-      where('username', '==', trimmedUsername)
-    );
-    const usernameSnapshot = await getDocs(usernameQuery);
+    const usernameQuery = query(collection(db, 'users'), where('username', '==', trimmedUsername))
+    const usernameSnapshot = await getDocs(usernameQuery)
     if (!usernameSnapshot.empty) {
-      setError('Username is already taken.');
-      return false;
+      setError('Username is already taken.')
+      return false
     }
 
-    return true;
-  };
+    return true
+  }
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setMessage('');
-    setLoading(true);
+    e.preventDefault()
+    setError('')
+    setMessage('')
+    setLoading(true)
 
     try {
-      const isValid = await validateForm();
-      if (!isValid) return;
+      const isValid = await validateForm()
+      if (!isValid) {
+        setLoading(false)
+        return
+      }
 
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         formData.email.trim().toLowerCase(),
         formData.password
-      );
+      )
 
-      const user = userCredential.user;
+      const user = userCredential.user
 
       await setDoc(doc(db, 'users', user.uid), {
         username: formData.username.trim(),
@@ -184,36 +206,38 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
         role: 'user',
         createdAt: new Date(),
         verified: false,
-      });
+      })
 
-      await sendEmailVerification(user);
-      setMessage('Account created! Please check your email to verify your account.');
-      setFormData({ email: '', username: '', password: '', confirmPassword: '' });
-      setShowPasswordRequirements(false);
+      await sendEmailVerification(user)
+
+      setMessage('Account created! Please check your email to verify your account.')
+      setFormData({ email: '', username: '', password: '', confirmPassword: '' })
+      setShowPasswordRequirements(false)
+      setRegistered(true) // ✅ trigger verification watcher
     } catch (err) {
-      console.error('Registration error:', err);
+      console.error('Registration error:', err)
       const errorMessages = {
         'auth/email-already-in-use': 'This email is already registered.',
         'auth/invalid-email': 'Please enter a valid email address.',
         'auth/weak-password': 'Password is too weak.',
         'auth/network-request-failed': 'Network error. Please check your internet connection.',
-      };
-      setError(errorMessages[err.code] || 'An unexpected error occurred.');
+      }
+      setError(errorMessages[err.code] || 'An unexpected error occurred.')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleGoogleSignUp = async () => {
-    setError('');
-    setLoading(true);
+    setError('')
+    setLoading(true)
     try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
+      const provider = new GoogleAuthProvider()
+      const result = await signInWithPopup(auth, provider)
+      const user = result.user
 
-      const userRef = doc(db, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
+      const userRef = doc(db, 'users', user.uid)
+      const userSnap = await getDoc(userRef)
       if (!userSnap.exists()) {
         await setDoc(userRef, {
           username: user.displayName || 'User',
@@ -221,34 +245,37 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
           role: 'user',
           verified: true,
           createdAt: new Date(),
-        });
+        })
       }
 
-      handleClose();
-      navigate('/student-dashboard');
+      handleClose()
+      navigate('/student-dashboard')
     } catch (err) {
-      console.error('Google Sign Up Error:', err);
-      setError('Failed to sign up with Google. Please try again.');
+      console.error('Google Sign Up Error:', err)
+      setError('Failed to sign up with Google. Please try again.')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  if (!show) return null;
+  if (!show) return null
 
   return (
-    <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"
+    <div
+      className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
+        if (e.target === e.currentTarget) handleClose()
       }}
       role="dialog"
       aria-modal="true"
     >
-      <Container className="bg-white shadow p-5 rounded-4 position-relative text-center"
+      <Container
+        className="bg-white shadow p-5 rounded-4 position-relative text-center"
         style={{ maxWidth: '450px', fontFamily: 'Outfit, sans-serif' }}
       >
-        <Button variant="link"
+        <Button
+          variant="link"
           onClick={handleClose}
           style={{
             position: 'absolute',
@@ -270,9 +297,12 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
           Create an account
         </h2>
 
+        {/* 🧩 FORM */}
         <Form onSubmit={handleSubmit} className="d-flex flex-column align-items-center gap-3">
+          {/* Email */}
           <Form.Group className="w-75">
-            <Form.Control type="email"
+            <Form.Control
+              type="email"
               name="email"
               placeholder="Email"
               value={formData.email}
@@ -288,8 +318,10 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
             />
           </Form.Group>
 
+          {/* Username */}
           <Form.Group className="w-75">
-            <Form.Control type="text"
+            <Form.Control
+              type="text"
               name="username"
               placeholder="Username"
               value={formData.username}
@@ -306,8 +338,10 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
             />
           </Form.Group>
 
+          {/* Password */}
           <Form.Group className="w-75 position-relative">
-            <Form.Control type={showPassword ? 'text' : 'password'}
+            <Form.Control
+              type={showPassword ? 'text' : 'password'}
               name="password"
               placeholder="Password"
               value={formData.password}
@@ -325,8 +359,9 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
               }}
             />
             {formData.password && (
-              <Button variant="link"
-                onClick={togglePasswordVisibility}
+              <Button
+                variant="link"
+                onClick={() => setShowPassword((p) => !p)}
                 className="position-absolute top-50 end-0 translate-middle-y me-2 p-0 border-0 bg-transparent"
                 style={{
                   fontSize: '12px',
@@ -339,43 +374,27 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
             )}
           </Form.Group>
 
+          {/* Password Requirements */}
           {formData.password && showPasswordRequirements && (
-            <div className="w-75 text-start fade-in"
-              style={{
-                fontSize: '0.8rem',
-                color: '#333',
-                transition: 'opacity 0.4s ease-in-out',
-              }}
-            >
+            <div className="w-75 text-start fade-in" style={{ fontSize: '0.8rem', color: '#333' }}>
               <p className="mb-1 fw-semibold">Password must include:</p>
               <ul className="list-unstyled mb-0">
                 <li style={{ color: passwordChecks.length ? 'green' : 'red' }}>
-                  <i className={`bi ${passwordChecks.length ? 'bi-check-circle-fill' : 'bi-x-circle-fill'} me-1`}></i>
                   At least 8 characters
                 </li>
-                <li style={{ color: passwordChecks.lowercase ? 'green' : 'red' }}>
-                  <i className={`bi ${passwordChecks.lowercase ? 'bi-check-circle-fill' : 'bi-x-circle-fill'} me-1`}></i>
-                  Lowercase letter
-                </li>
-                <li style={{ color: passwordChecks.uppercase ? 'green' : 'red' }}>
-                  <i className={`bi ${passwordChecks.uppercase ? 'bi-check-circle-fill' : 'bi-x-circle-fill'} me-1`}></i>
-                  Uppercase letter
-                </li>
-                <li style={{ color: passwordChecks.number ? 'green' : 'red' }}>
-                  <i className={`bi ${passwordChecks.number ? 'bi-check-circle-fill' : 'bi-x-circle-fill'} me-1`}></i>
-                  Number
-                </li>
-                <li style={{ color: passwordChecks.special ? 'green' : 'red' }}>
-                  <i className={`bi ${passwordChecks.special ? 'bi-check-circle-fill' : 'bi-x-circle-fill'} me-1`}></i>
-                  Special character
-                </li>
+                <li style={{ color: passwordChecks.lowercase ? 'green' : 'red' }}>Lowercase letter</li>
+                <li style={{ color: passwordChecks.uppercase ? 'green' : 'red' }}>Uppercase letter</li>
+                <li style={{ color: passwordChecks.number ? 'green' : 'red' }}>Number</li>
+                <li style={{ color: passwordChecks.special ? 'green' : 'red' }}>Special character</li>
               </ul>
             </div>
           )}
 
+          {/* Confirm Password */}
           {formData.password.length > 0 && (
             <Form.Group className="w-75 position-relative fade-in">
-              <Form.Control type={showConfirmPassword ? 'text' : 'password'}
+              <Form.Control
+                type={showConfirmPassword ? 'text' : 'password'}
                 name="confirmPassword"
                 placeholder="Confirm Password"
                 value={formData.confirmPassword}
@@ -392,8 +411,9 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
                 }}
               />
               {formData.confirmPassword && (
-                <Button variant="link"
-                  onClick={toggleConfirmPasswordVisibility}
+                <Button
+                  variant="link"
+                  onClick={() => setShowConfirmPassword((p) => !p)}
                   className="position-absolute top-50 end-0 translate-middle-y me-2 p-0 border-0 bg-transparent"
                   style={{
                     fontSize: '12px',
@@ -407,31 +427,34 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
             </Form.Group>
           )}
 
+          {/* Alerts */}
           {error && <Alert variant="danger" className="w-75 py-2 mb-0">{error}</Alert>}
           {message && <Alert variant="success" className="w-75 py-2 mb-0">{message}</Alert>}
 
-          <Button type="submit"
-            disabled={ loading }
+          <Button
+            type="submit"
+            disabled={loading}
             className="w-50 py-2 rounded-pill fw-bold mt-2"
             style={{
               backgroundColor: loading ? '#6c757d' : 'var(--bs-primary-custom)',
               borderColor: loading ? '#6c757d' : 'var(--bs-primary-custom)',
               color: 'white',
-              transition: 'all 0.2s ease-in-out',
-              cursor: 'pointer',
             }}
           >
             {loading ? 'Signing up...' : 'Sign up'}
           </Button>
         </Form>
 
+        {/* Divider */}
         <div className="d-flex align-items-center my-3 w-50 mx-auto" style={{ fontSize: '0.85rem', color: '#000' }}>
           <hr className="flex-grow-1" style={{ borderTop: '1px solid #000', margin: 0 }} />
           <span className="mx-2">or</span>
           <hr className="flex-grow-1" style={{ borderTop: '1px solid #000', margin: 0 }} />
         </div>
 
-        <Button onClick={handleGoogleSignUp}
+        {/* Google Sign Up */}
+        <Button
+          onClick={handleGoogleSignUp}
           className="d-flex align-items-center justify-content-center mt-2"
           style={{
             backgroundColor: '#fff',
@@ -449,11 +472,13 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
           Sign up with Google
         </Button>
 
+        {/* Switch to Sign In */}
         <p className="mt-3 mb-0" style={{ fontSize: '0.9rem' }}>
           Already have an account?{' '}
-          <button onClick={() => {
-              if (onSwitchToSignIn) onSwitchToSignIn();
-              handleClose();
+          <button
+            onClick={() => {
+              if (onSwitchToSignIn) onSwitchToSignIn()
+              handleClose()
             }}
             className="fw-semibold text-decoration-none border-0 bg-transparent"
             style={{ color: 'var(--bs-primary-custom)', cursor: 'pointer' }}
@@ -463,7 +488,7 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
         </p>
       </Container>
     </div>
-  );
+  )
 }
 
 export default Register
