@@ -15,6 +15,8 @@ function ReportItem() {
   const [imageFile, setImageFile] = useState(null);
   const [category, setCategory] = useState("Cat1");
   const [uploadProgress, setUploadProgress] = useState("");
+  const [itemName, setItemName] = useState("ID Card");
+  const [customItemName, setCustomItemName] = useState("");
   const auth = getAuth();
   const navigate = useNavigate();
 
@@ -62,7 +64,7 @@ function ReportItem() {
 
     try {
       const formData = new FormData(e.target);
-      const rawItemName = formData.get("itemName").trim();
+      const rawItemName = itemName === "Others" ? customItemName.trim() : itemName;
       const rawDescription = formData.get("description").trim();
       const location = formData.get("location").trim();
       const dateField =
@@ -147,6 +149,8 @@ function ReportItem() {
       setImageFile(null);
       setItemType("lost");
       setCategory("Cat1");
+      setItemName("ID Card");
+      setCustomItemName("");
       setUploadProgress("");
       setShowSuccessModal(true);
     } catch (error) {
@@ -204,13 +208,35 @@ function ReportItem() {
                         Item Name:<span className="text-danger ms-1">*</span>
                       </Form.Label>
                       <Col sm={9}>
-                        <Form.Control
-                          type="text"
-                          name="itemName"
-                          placeholder="Enter item name"
+                        <Form.Select
+                          value={itemName}
+                          onChange={(e) => {
+                            setItemName(e.target.value);
+                            if (e.target.value !== "Others") {
+                              setCustomItemName("");
+                            }
+                          }}
                           required
                           className="rounded-3"
-                        />
+                        >
+                          <option value="ID Card">ID Card</option>
+                          <option value="Ballpen">Ballpen</option>
+                          <option value="Wallet">Wallet</option>
+                          <option value="Tumbler">Tumbler</option>
+                          <option value="Phone">Phone</option>
+                          <option value="Key Chain">Key Chain</option>
+                          <option value="Others">Others</option>
+                        </Form.Select>
+                        {itemName === "Others" && (
+                          <Form.Control
+                            type="text"
+                            placeholder="Please specify item name"
+                            value={customItemName}
+                            onChange={(e) => setCustomItemName(e.target.value)}
+                            required
+                            className="rounded-3 mt-2"
+                          />
+                        )}
                       </Col>
                     </Form.Group>
 

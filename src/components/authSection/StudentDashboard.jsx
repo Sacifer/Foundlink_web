@@ -282,50 +282,6 @@ function StudentDashboard() {
             </Button>
           </div>
 
-          <Row className="mb-4 g-3 justify-content-center">
-            <Col xs={12} md={4}>
-              <Card className="shadow-sm rounded-4 p-3" style={{ minHeight: '130px' }}>
-                <Card.Body className="d-flex align-items-center justify-content-center">
-                  <FaBox size={45} style={{ color: 'var(--bs-primary-custom)', marginRight: '16px' }} />
-                  <div className="text-center">
-                    <Card.Title className="fs-5 fw-medium mb-1" style={{ color: 'var(--bs-primary-custom)' }}>Items Lost</Card.Title>
-                    <Card.Text className="fs-4 fw-bold mb-0" style={{ color: 'var(--bs-primary-custom)' }}>
-                    {userReports.filter((item) => item.type?.toLowerCase() === 'lost').length}
-                    </Card.Text>
-                  </div>
-                </Card.Body>
-              </Card>
-            </Col>
-
-            <Col xs={12} md={4}>
-              <Card className="shadow-sm rounded-4 p-3" style={{ minHeight: '130px' }}>
-                <Card.Body className="d-flex align-items-center justify-content-center">
-                  <FaSearch size={45} style={{ color: 'var(--bs-primary-custom)', marginRight: '16px' }} />
-                  <div className="text-center">
-                    <Card.Title className="fs-5 fw-medium mb-1" style={{ color: 'var(--bs-primary-custom)' }}>Items Found</Card.Title>
-                    <Card.Text className="fs-4 fw-bold mb-0" style={{ color: 'var(--bs-primary-custom)' }}>
-                    {userReports.filter((item) => item.type?.toLowerCase() === 'found').length}
-                    </Card.Text>
-                  </div>
-                </Card.Body>
-              </Card>
-            </Col>
-
-            <Col xs={12} md={4}>
-              <Card className="shadow-sm rounded-4 p-3" style={{ minHeight: '130px' }}>
-                <Card.Body className="d-flex align-items-center justify-content-center">
-                  <FaCheckCircle size={45} style={{ color: 'var(--bs-primary-custom)', marginRight: '16px' }} />
-                  <div className="text-center">
-                    <Card.Title className="fs-5 fw-medium mb-1" style={{ color: 'var(--bs-primary-custom)' }}>Claimed</Card.Title>
-                    <Card.Text className="fs-4 fw-bold mb-0" style={{ color: 'var(--bs-primary-custom)' }}>
-                      {userReports.filter((item) => item.statusValue === 'Claimed').length}
-                    </Card.Text>
-                  </div>
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
-
           <div className="d-flex justify-content-center align-items-center flex-wrap mb-4" style={{ gap: '6px' }}>
             <Form.Control type="text"
               placeholder="Search items..."

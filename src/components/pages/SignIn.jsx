@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Container, Form, Button, Image, Alert, InputGroup } from 'react-bootstrap'
-import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
+import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth'
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore'
 import { auth, db } from '../../firebase.js'
 import google from '../../assets/google.png'
 import ForgotPass from '../ForgotPass.jsx'
@@ -32,6 +32,21 @@ function SignIn({ show = true, onClose, onSwitchToRegister }) {
     }
   }, [show]);
 
+  // ✅ Check if user is archived
+  const checkIfArchived = async (email) => {
+    try {
+      const archivedQuery = query(
+        collection(db, 'archived_users'),
+        where('email', '==', email.trim().toLowerCase())
+      );
+      const archivedSnapshot = await getDocs(archivedQuery);
+      return !archivedSnapshot.empty;
+    } catch (err) {
+      console.error('Error checking archived status:', err);
+      return false;
+    }
+  };
+
   const handleEmailPasswordSignIn = async (e) => {
     e.preventDefault();
     setError('');
@@ -39,15 +54,34 @@ function SignIn({ show = true, onClose, onSwitchToRegister }) {
 
     try {
       const { email, password } = formData;
+      const normalizedEmail = email.trim().toLowerCase();
+
+      // ✅ Check if account is archived before attempting sign-in
+      const isArchived = await checkIfArchived(normalizedEmail);
+      if (isArchived) {
+        setError('This account has been archived and cannot sign in. Please contact support.');
+        setLoading(false);
+        return;
+      }
+
       const userCredential = await signInWithEmailAndPassword(
         auth,
-        email.trim().toLowerCase(),
+        normalizedEmail,
         password
       );
 
       const userDoc = doc(db, 'users', userCredential.user.uid);
       const snapshot = await getDoc(userDoc);
-      const role = snapshot.exists() ? snapshot.data().role : 'user';
+      
+      if (!snapshot.exists()) {
+        // User authenticated but no document found - sign out and show error
+        await signOut(auth);
+        setError('Account data not found. Please contact support.');
+        setLoading(false);
+        return;
+      }
+
+      const role = snapshot.data().role || 'user';
 
       if (role === 'admin') navigate('/admin-dashboard');
       else navigate('/student-dashboard');
@@ -81,12 +115,33 @@ function SignIn({ show = true, onClose, onSwitchToRegister }) {
 
   const handleGoogleSignIn = async () => {
     setError('');
+    setLoading(true);
     const provider = new GoogleAuthProvider();
+    
     try {
       const result = await signInWithPopup(auth, provider);
+      const userEmail = result.user.email.toLowerCase();
+
+      // ✅ Check if account is archived
+      const isArchived = await checkIfArchived(userEmail);
+      if (isArchived) {
+        await signOut(auth);
+        setError('This account has been archived and cannot sign in. Please contact support.');
+        setLoading(false);
+        return;
+      }
+
       const userDoc = doc(db, 'users', result.user.uid);
       const snapshot = await getDoc(userDoc);
-      const role = snapshot.exists() ? snapshot.data().role : 'user';
+      
+      if (!snapshot.exists()) {
+        await signOut(auth);
+        setError('Account data not found. Please contact support.');
+        setLoading(false);
+        return;
+      }
+
+      const role = snapshot.data().role || 'user';
 
       if (role === 'admin') navigate('/admin-dashboard');
       else navigate('/student-dashboard');
@@ -95,6 +150,8 @@ function SignIn({ show = true, onClose, onSwitchToRegister }) {
     } catch (err) {
       console.error('Google sign-in error:', err);
       setError('Failed to sign in with Google.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -146,6 +203,7 @@ function SignIn({ show = true, onClose, onSwitchToRegister }) {
                   value={formData.email}
                   onChange={handleChange}
                   required
+                  disabled={loading}
                   style={{
                     borderColor: 'var(--bs-primary-custom)',
                     borderWidth: '2px',
@@ -163,6 +221,7 @@ function SignIn({ show = true, onClose, onSwitchToRegister }) {
                     value={formData.password}
                     onChange={handleChange}
                     required
+                    disabled={loading}
                     style={{
                       borderColor: 'var(--bs-primary-custom)',
                       borderWidth: '2px',
@@ -220,6 +279,7 @@ function SignIn({ show = true, onClose, onSwitchToRegister }) {
             </div>
 
             <Button onClick={handleGoogleSignIn}
+              disabled={loading}
               className="d-flex align-items-center justify-content-center mt-2"
               style={{
                 backgroundColor: '#fff',

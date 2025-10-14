@@ -8,7 +8,7 @@ import {
   sendEmailVerification,
   GoogleAuthProvider,
   signInWithPopup,
-  signOut, // ✅ added
+  signOut,
 } from 'firebase/auth'
 import {
   doc,
@@ -159,6 +159,14 @@ function Register({ show = true, onHide, onSwitchToSignIn }) {
 
     if (password !== confirmPassword) {
       setError('Passwords do not match.')
+      return false
+    }
+
+    // ✅ Check if user limit exceeded (197 users with role: 'user')
+    const userRoleQuery = query(collection(db, 'users'), where('role', '==', 'user'))
+    const userRoleSnapshot = await getDocs(userRoleQuery)
+    if (userRoleSnapshot.size >= 197) {
+      setError('Registration limit reached. No more user accounts can be created at this time.')
       return false
     }
 
