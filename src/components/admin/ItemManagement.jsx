@@ -76,14 +76,11 @@ export default function ItemManagement() {
     }, 3000);
   };
 
-  // Enhanced reference detection for Firestore
   const isRef = (v) => {
     if (!v || typeof v !== "object") return false;
-    // Check for Firestore DocumentReference properties
     return ("path" in v || "firestore" in v || "converter" in v || "_key" in v || v.constructor?.name === "DocumentReference");
   };
 
-  // Helper to safely extract string values from any field
   const safeString = (value, fallback = "N/A") => {
     if (value === null || value === undefined) return fallback;
     if (typeof value === "string") return value;
@@ -93,15 +90,30 @@ export default function ItemManagement() {
     return String(value);
   };
 
+  // Calculate days until expiration (14 days from created_at)
+  const getDaysUntilExpiration = (created_at) => {
+    if (!created_at) return null;
+    try {
+      const createdSeconds = created_at.seconds || created_at;
+      const createdTime = createdSeconds * 1000;
+      const expirationTime = createdTime + (14 * 24 * 60 * 60 * 1000); // 14 days
+      const now = Date.now();
+      const daysLeft = Math.ceil((expirationTime - now) / (1000 * 60 * 60 * 24));
+      return daysLeft > 0 ? daysLeft : 0;
+    } catch (e) {
+      console.error("Error calculating days:", e);
+      return null;
+    }
+  };
+
   async function fetchItems() {
     setLoading(true);
     try {
       const snapshot = await getDocs(collection(db, "items"));
       const data = await Promise.all(
         snapshot.docs.map(async (d) => {
-          const item = { id: d.id, ...d.data() };
+          let item = { id: d.id, ...d.data() };
 
-          // 🟡 Resolve category reference
           if (item.category && isRef(item.category)) {
             try {
               const categorySnap = await getDoc(item.category);
@@ -122,7 +134,6 @@ export default function ItemManagement() {
             item.category_name = "No Category";
           }
 
-          // 🟢 Resolve status reference
           if (item.status && isRef(item.status)) {
             try {
               const statusSnap = await getDoc(item.status);
@@ -143,7 +154,6 @@ export default function ItemManagement() {
             item.status_name = "No Status";
           }
 
-          // 🧩 Type is already a string in your case
           if (typeof item.type === "string") {
             item.type_name = item.type;
           } else if (item.type && isRef(item.type)) {
@@ -152,7 +162,6 @@ export default function ItemManagement() {
               if (typeSnap.exists()) {
                 const typeData = typeSnap.data();
                 item.type_name = typeData.type_name || typeData.name || typeSnap.id;
-                item.type_id = typeSnap.id;
               } else {
                 item.type_name = "Unknown Type";
               }
@@ -164,14 +173,6 @@ export default function ItemManagement() {
             item.type_name = "Unknown";
           }
 
-          // 👤 Fetch username from users collection using userId or user_name reference
-          console.log("🔍 Processing user for item:", item.id, {
-            userId: item.userId,
-            user_name: item.user_name,
-            user_name_type: typeof item.user_name,
-            is_ref: isRef(item.user_name)
-          });
-
           if (item.userId) {
             try {
               const userDocRef = doc(db, "users", item.userId);
@@ -179,9 +180,7 @@ export default function ItemManagement() {
               if (userSnap.exists()) {
                 const userData = userSnap.data();
                 item.user_name = userData.user_name || userData.username || userData.displayName || userData.email || "Unknown User";
-                console.log("✅ Resolved user from userId:", item.user_name);
               } else {
-                console.log("❌ User document not found for userId:", item.userId);
                 item.user_name = "Unknown User";
               }
             } catch (err) {
@@ -189,18 +188,13 @@ export default function ItemManagement() {
               item.user_name = "Unknown User";
             }
           } else if (typeof item.user_name === "string") {
-            console.log("✅ User name already a string:", item.user_name);
-            // Keep as is for old items that might have user_name as string
+            // Keep as is
           } else if (item.user_name && isRef(item.user_name)) {
-            console.log("🔗 User name is a reference, resolving...");
             try {
               const userSnap = await getDoc(item.user_name);
-              console.log("📄 User ref exists?", userSnap.exists());
               if (userSnap.exists()) {
                 const userData = userSnap.data();
-                console.log("👤 User data from ref:", userData);
                 item.user_name = userData.user_name || userData.username || userData.displayName || userData.email || userSnap.id;
-                console.log("✅ Resolved user from reference:", item.user_name);
               } else {
                 item.user_name = "Unknown User";
               }
@@ -209,7 +203,6 @@ export default function ItemManagement() {
               item.user_name = "Unknown User";
             }
           } else {
-            console.log("⚠️ No user information found");
             item.user_name = "Unknown User";
           }
 
@@ -217,14 +210,16 @@ export default function ItemManagement() {
         })
       );
 
-      console.log("✅ Fetched items with resolved references:", data);
+      console.log("Fetched items with resolved references:", data);
       setItems(data);
     } catch (err) {
-      console.error("❌ Error fetching items:", err);
+      console.error("Error fetching items:", err);
     } finally {
       setLoading(false);
     }
   }
+
+  const [sortOrder, setSortOrder] = useState("recent");
 
   const filteredItems = useMemo(() => {
     let result = items;
@@ -260,8 +255,14 @@ export default function ItemManagement() {
       });
     }
 
+    result = result.sort((a, b) => {
+      const dateA = a.created_at?.seconds || 0;
+      const dateB = b.created_at?.seconds || 0;
+      return sortOrder === "recent" ? dateB - dateA : dateA - dateB;
+    });
+
     return result;
-  }, [items, showArchived, searchQuery, filters]);
+  }, [items, showArchived, searchQuery, filters, sortOrder]);
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -271,7 +272,7 @@ export default function ItemManagement() {
     try {
       const snap = await getDocs(collection(db, "status"));
       const opts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      console.log("📊 Fetched status options:", opts);
+      console.log("Fetched status options:", opts);
       setStatusOptions(opts);
     } catch (err) {
       console.error("fetchStatusOptions error", err);
@@ -301,17 +302,15 @@ export default function ItemManagement() {
     }
   
     try {
-      console.log('🚀 Starting item addition...');
+      console.log('Starting item addition...');
       
       const categoryRef = doc(db, "categories", newItem.category);
       const statusRef = doc(db, "status", "Status1");
   
       let imageUrl = null;
       
-      // Upload image if exists
       if (imageFile) {
-        console.log('📤 Starting image upload...');
-        console.log('Image file:', imageFile.name, 'Size:', imageFile.size, 'bytes');
+        console.log('Starting image upload...');
         
         const allowedTypes = ["image/png", "image/jpeg", "image/jpg"];
         if (!allowedTypes.includes(imageFile.type)) {
@@ -329,28 +328,25 @@ export default function ItemManagement() {
           const fileName = `${Date.now()}-${imageFile.name}`;
           const storageRef = ref(storage, `reports/${fileName}`);
           
-          console.log('📍 Storage path:', storageRef.fullPath);
-          
-          // Upload with timeout
           const uploadPromise = uploadBytes(storageRef, imageFile);
           const timeoutPromise = new Promise((_, reject) => 
             setTimeout(() => reject(new Error('Upload timeout after 30 seconds')), 30000)
           );
           
           await Promise.race([uploadPromise, timeoutPromise]);
-          console.log('✅ Upload complete');
+          console.log('Upload complete');
           
           imageUrl = await getDownloadURL(storageRef);
-          console.log('🔗 Image URL:', imageUrl);
+          console.log('Image URL:', imageUrl);
           
         } catch (uploadError) {
-          console.error('❌ Image upload error:', uploadError);
+          console.error('Image upload error:', uploadError);
           alert('Failed to upload image: ' + uploadError.message + '\n\nContinuing without image...');
-          imageUrl = null; // Continue without image
+          imageUrl = null;
         }
       }
   
-      console.log('💾 Saving to Firestore...');
+      console.log('Saving to Firestore...');
       await addDoc(collection(db, "items"), {
         item_name: newItem.item_name,
         category: categoryRef,
@@ -361,11 +357,11 @@ export default function ItemManagement() {
         userId: auth.currentUser.uid,
         status: statusRef,
         archived: false,
-        createdAt: Timestamp.now(),
+        created_at: Timestamp.now(),
         ...(imageUrl ? { image_url: imageUrl } : {}),
       });
       
-      console.log('✅ Item added successfully!');
+      console.log('Item added successfully!');
   
       setAddModalOpen(false);
       setNewItem({ item_name: "", category: "", description: "", location: "", date_lost_found: "", type: "Lost" });
@@ -374,12 +370,7 @@ export default function ItemManagement() {
       showToast("Item added successfully!", "success");
       
     } catch (err) {
-      console.error("❌ Error adding item:", err);
-      console.error('Error details:', {
-        message: err.message,
-        code: err.code,
-        stack: err.stack
-      });
+      console.error("Error adding item:", err);
       alert("Failed to add item: " + err.message);
     }
   }
@@ -444,7 +435,7 @@ export default function ItemManagement() {
         message: message || "",
         read: false,
         type: "notif",
-        createdAt: Timestamp.now(),
+        created_at: Timestamp.now(),
       });
       return true;
     } catch (err) {
@@ -474,7 +465,6 @@ export default function ItemManagement() {
 
       await updateDoc(itemRef, updatePayload);
 
-      // Check if status has changed and send notification
       const oldStatusId = editItem.status_id || editItem.status;
       const newStatusId = editForm.status;
       
@@ -696,6 +686,68 @@ export default function ItemManagement() {
     setShowArchived(prev => !prev);
   }, []);
 
+  async function handleExpiredItems() {
+    try {
+      const now = Timestamp.now();
+      const snapshot = await getDocs(collection(db, "items"));
+      const batch = writeBatch(db);
+
+      snapshot.docs.forEach((doc) => {
+        const item = doc.data();
+        if (item.expirationDate && item.expirationDate.seconds < now.seconds) {
+          const expiredRef = doc(db, "expired_items", doc.id);
+          batch.set(expiredRef, { ...item, expiredAt: now });
+          batch.delete(doc.ref);
+        }
+      });
+
+      await batch.commit();
+      console.log("Expired items processed successfully.");
+      await fetchItems();
+    } catch (err) {
+      console.error("Error handling expired items:", err);
+    }
+  }
+
+  async function notifyExpiringItems() {
+    try {
+      const now = Timestamp.now();
+      const twoDaysInSeconds = 2 * 24 * 60 * 60;
+      const snapshot = await getDocs(collection(db, "items"));
+
+      snapshot.docs.forEach(async (doc) => {
+        const item = doc.data();
+        if (item.created_at) {
+          const createdSeconds = item.created_at.seconds;
+          const expirationTime = createdSeconds + (14 * 24 * 60 * 60); // 14 days in seconds
+          const timeUntilExpiry = expirationTime - now.seconds;
+
+          // Notify if item expires in 2 days or less (and hasn't expired yet)
+          if (timeUntilExpiry <= twoDaysInSeconds && timeUntilExpiry > 0) {
+            await sendNotification(
+              item.userId,
+              item.id,
+              `Your item "${item.item_name}" will expire in 2 days. Please renew it to avoid deletion.`
+            );
+          }
+        }
+      });
+
+      console.log("Notifications sent for expiring items.");
+    } catch (err) {
+      console.error("Error notifying expiring items:", err);
+    }
+  }
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      handleExpiredItems();
+      notifyExpiringItems();
+    }, 24 * 60 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="container-fluid py-4" style={{ backgroundColor: "#fff8e6", minHeight: "100vh", paddingLeft: "2rem", paddingRight: "2rem" }}>
       {showToastNotif && (
@@ -781,6 +833,17 @@ export default function ItemManagement() {
         <div className="card shadow-sm mb-4 border-0">
           <div className="card-body p-4">
             <div className="row g-3 align-items-end">
+              <div className="col-12 col-md-6 col-lg-auto">
+                <label className="form-label fw-semibold mb-2">Sort By</label>
+                <select
+                  className="form-select"
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value)}
+                >
+                  <option value="recent">Date Added: Recent to Oldest</option>
+                  <option value="oldest">Date Added: Oldest to Recent</option>
+                </select>
+              </div>
               <div className="col-12 col-md-6 col-lg-auto">
                 <label className="form-label fw-semibold mb-2">Type</label>
                 <select className="form-select" value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })}>
@@ -900,10 +963,12 @@ export default function ItemManagement() {
           const safeUser = safeString(item.user_name || item.user, "Unknown");
           const safeLocation = safeString(item.location, "N/A");
           const safeDescription = safeString(item.description, "No description");
+          const daysLeft = getDaysUntilExpiration(item.created_at);
+          console.log(`Item: ${item.item_name}, created_at:`, item.created_at, "daysLeft:", daysLeft);
 
           return (
             <div key={`${item.id}-${showArchived}`} className="col-12 col-md-6 col-xl-4">
-              <div className="card h-100 shadow-sm border-0 overflow-hidden">
+              <div className="card h-100 shadow-sm border-0 overflow-hidden" style={{ position: "relative" }}>
                 <div className="position-relative">
                   <div
                     className={`badge position-absolute top-0 start-0 m-3 ${
@@ -947,6 +1012,17 @@ export default function ItemManagement() {
                       style={{ fontSize: "14px", padding: "8px 12px", zIndex: 10 }}
                     >
                       <span className="text-uppercase fw-semibold">ARCHIVED</span>
+                    </div>
+                  )}
+
+                  {daysLeft !== null && !showArchived && (
+                    <div
+                      className={`badge position-absolute top-0 end-0 m-3 shadow-sm ${
+                        daysLeft <= 2 ? "bg-danger" : daysLeft <= 7 ? "bg-warning text-dark" : "bg-info"
+                      }`}
+                      style={{ fontSize: "13px", padding: "8px 12px", zIndex: 11, fontWeight: "600" }}
+                    >
+                      <span>⏰ {daysLeft}d left</span>
                     </div>
                   )}
 
@@ -1222,17 +1298,24 @@ export default function ItemManagement() {
               <form onSubmit={handleAddItem}>
                 <div className="modal-body pt-2">
                   <div className="row g-3">
-                    <div className="col-12">
-                      <label className="form-label fw-semibold">Item Name</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Enter item name"
-                        value={newItem.item_name}
-                        onChange={(e) => setNewItem({ ...newItem, item_name: e.target.value })}
-                        required
-                      />
-                    </div>
+                  <div className="col-12">
+                    <label className="form-label fw-semibold">Item Name</label>
+                    <select
+                      className="form-select"
+                      value={newItem.item_name}
+                      onChange={(e) => setNewItem({ ...newItem, item_name: e.target.value })}
+                      required
+                    >
+                      <option value="">Select Item Name</option>
+                      <option value="ID Card">ID Card</option>
+                      <option value="Ballpen">Ballpen</option>
+                      <option value="Wallet">Wallet</option>
+                      <option value="Tumbler">Tumbler</option>
+                      <option value="Phone">Phone</option>
+                      <option value="Key Chain">Key Chain</option>
+                      <option value="Others">Others</option>
+                    </select>
+                  </div>
                     <div className="col-md-6">
                       <label className="form-label fw-semibold">Category</label>
                       <select
@@ -1350,13 +1433,21 @@ export default function ItemManagement() {
               <div className="modal-body pt-2">
                 <div className="mb-3">
                   <label className="form-label fw-semibold">Item Name</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="item_name"
-                    value={editForm.item_name}
-                    onChange={handleEditChange}
-                  />
+                  <select
+                      className="form-select"
+                      value={newItem.item_name}
+                      onChange={(e) => setNewItem({ ...newItem, item_name: e.target.value })}
+                      required
+                    >
+                      <option value="">Select Item Name</option>
+                      <option value="ID Card">ID Card</option>
+                      <option value="Ballpen">Ballpen</option>
+                      <option value="Wallet">Wallet</option>
+                      <option value="Tumbler">Tumbler</option>
+                      <option value="Phone">Phone</option>
+                      <option value="Key Chain">Key Chain</option>
+                      <option value="Others">Others</option>
+                    </select>
                 </div>
                 <div className="mb-3">
                   <label className="form-label fw-semibold">Category</label>

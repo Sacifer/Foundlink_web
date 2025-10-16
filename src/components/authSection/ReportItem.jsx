@@ -219,6 +219,7 @@ function ReportItem() {
                           required
                           className="rounded-3"
                         >
+                          <option value="ID Card">Select Item Name</option>
                           <option value="ID Card">ID Card</option>
                           <option value="Ballpen">Ballpen</option>
                           <option value="Wallet">Wallet</option>
