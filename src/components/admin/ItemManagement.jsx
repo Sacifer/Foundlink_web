@@ -1506,7 +1506,6 @@ export default function ItemManagement() {
                     ) : (
                       <>
                         <option>Pending</option>
-                        <option>Matched</option>
                         {editItem?.archived && <option>Archived</option>}
                       </>
                     )}
