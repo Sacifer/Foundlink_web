@@ -11,7 +11,6 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
-const messaging = admin.messaging();
 
 const PENDING_STATUS_REF = db.doc("status/Status1");
 const MATCH_THRESHOLD = Number(process.env.MATCH_THRESHOLD || 70);
@@ -26,108 +25,6 @@ const HF_TOKEN =
 const TEXT_MODEL =
   "https://api-inference.huggingface.co/models/intfloat/multilingual-e5-large";
 const IMAGE_MODEL = "jina-clip-v1";
-
-// Helper to create document references
-function getStatusRef(statusPath: string): FirebaseFirestore.DocumentReference {
-  return db.doc(statusPath);
-}
-
-// =========================
-// TRIGGER FUNCTION (Firebase Functions v2)
-// =========================
-export const onNewPendingItem = functions.firestore.onDocumentCreated(
-  "items/{itemId}",
-  async (event) => {
-    const snap = event.data;
-    const itemId = event.params.itemId;
-    
-    if (!snap) return;
-    
-    const newItem = snap.data() as any;
-
-    console.log(`🆕 New pending item detected: ${newItem.item_name} (ID: ${itemId})`);
-
-    // Add docRef to the item data for use in runMatching
-    newItem.docRef = snap.ref;
-    newItem.docId = itemId;
-
-    await runMatching(newItem);
-  }
-);
-
-// =========================
-// SEND NOTIFICATION
-// =========================
-async function sendMatchNotification(userId: string, matchData: any, itemType: string) {
-  try {
-    // Get user document to retrieve FCM token
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists) {
-      console.warn(`⚠️ User ${userId} not found`);
-      return;
-    }
-
-    const fcmToken = userDoc.data()?.fcmToken;
-    if (!fcmToken) {
-      console.warn(`⚠️ No FCM token for user ${userId}`);
-      return;
-    }
-
-    // Determine which item is the user's item
-    const userItem = itemType === "Found" ? matchData.foundItem : matchData.lostItem;
-    const matchedItem = itemType === "Found" ? matchData.lostItem : matchData.foundItem;
-
-    const title = `Your item "${userItem.item_name}" has been matched!`;
-    const body = `Confidence: ${matchData.confidence}%`;
-
-    // Send push notification
-    await messaging.send({
-      notification: {
-        title,
-        body,
-      },
-      data: {
-        matchId: matchData.matchId,
-        confidence: matchData.confidence.toString(),
-        accuracyLevel: matchData.accuracyLevel,
-        userItemName: userItem.item_name,
-        matchedItemName: matchedItem.item_name,
-        userItemDescription: userItem.description || "",
-        matchedItemDescription: matchedItem.description || "",
-        textSimilarity: matchData.textSimilarity?.toString() || "0",
-        imageSimilarity: matchData.imageSimilarity?.toString() || "0",
-        metadataSimilarity: matchData.metadataSimilarity?.toString() || "0",
-      },
-      token: fcmToken,
-    });
-
-    // Save notification to Firestore
-    await db.collection("notifications").add({
-      userId,
-      type: "match",
-      title,
-      body,
-      matchId: matchData.matchId,
-      matchData: {
-        confidence: matchData.confidence,
-        accuracyLevel: matchData.accuracyLevel,
-        lostItemId: matchData.lostItemId,
-        foundItemId: matchData.foundItemId,
-        lostItem: matchData.lostItem,
-        foundItem: matchData.foundItem,
-        textSimilarity: matchData.textSimilarity,
-        imageSimilarity: matchData.imageSimilarity,
-        metadataSimilarity: matchData.metadataSimilarity,
-      },
-      read: false,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    console.log(`✉️ Notification sent to user ${userId}`);
-  } catch (err) {
-    console.error("❌ Error sending notification:", err);
-  }
-}
 
 // =========================
 // ACCURACY LEVEL HELPER
@@ -198,10 +95,10 @@ function calculateMetadataSimilarity(item1: any, item2: any): number {
   }
 
   // Time proximity (15 points)
-  if (item1.created_at && item2.created_at) {
+  if (item1.createdAt && item2.createdAt) {
     maxScore += 15;
-    const time1 = item1.created_at?.toDate?.() || new Date(item1.created_at);
-    const time2 = item2.created_at?.toDate?.() || new Date(item2.created_at);
+    const time1 = item1.createdAt?.toDate?.() || new Date(item1.createdAt);
+    const time2 = item2.createdAt?.toDate?.() || new Date(item2.createdAt);
     const daysDiff = Math.abs((time1 - time2) / (1000 * 60 * 60 * 24));
     
     if (daysDiff <= 7) {
@@ -311,6 +208,54 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 // =========================
+// LOG NOTIFICATIONS TO DATABASE
+// =========================
+async function logNotificationToDatabase(
+  lostUserId: string,
+  foundUserId: string,
+  lostItem: any,
+  foundItem: any,
+  lostItemId: string,
+  foundItemId: string,
+  confidence: number,
+  accuracyLevel: string
+): Promise<void> {
+  try {
+    // Notification for lost item owner
+    await db.collection("notifications").add({
+      userId: lostUserId,
+      type: "match",
+      title: "🎉 Potential Match Found!",
+      body: `We found a "${foundItem.item_name}" that might be your lost "${lostItem.item_name}"`,
+      lostItemId,
+      foundItemId,
+      confidence,
+      accuracyLevel,
+      read: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    console.log(`✅ Notification saved for lost item owner (${lostUserId})`);
+
+    // Notification for found item owner
+    await db.collection("notifications").add({
+      userId: foundUserId,
+      type: "match",
+      title: "🎉 Potential Match Found!",
+      body: `Someone is looking for a "${lostItem.item_name}" that matches your found "${foundItem.item_name}"`,
+      lostItemId,
+      foundItemId,
+      confidence,
+      accuracyLevel,
+      read: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    console.log(`✅ Notification saved for found item owner (${foundUserId})`);
+  } catch (err) {
+    console.error("❌ Error logging notification to database:", err);
+  }
+}
+
+// =========================
 // MAIN MATCHING FUNCTION
 // =========================
 export async function runMatching(newItem?: any) {
@@ -318,8 +263,6 @@ export async function runMatching(newItem?: any) {
 
   const isFound = newItem.type === "Found";
   const oppositeType = isFound ? "Lost" : "Found";
-  const docRef = newItem.docRef as FirebaseFirestore.DocumentReference;
-  const docId = newItem.docId as string;
 
   console.log(`🔍 Running AI match for new ${newItem.type}: ${newItem.item_name}`);
 
@@ -335,8 +278,8 @@ export async function runMatching(newItem?: any) {
     return;
   }
 
-  const textEmbedding = await getTextEmbedding(newItem, docId, true);
-  const imageEmbedding = await getImageEmbedding(newItem.image_url, docId, false);
+  const textEmbedding = await getTextEmbedding(newItem, newItem.item_id, true);
+  const imageEmbedding = await getImageEmbedding(newItem.image_url, newItem.item_id, false);
 
   if (!textEmbedding.length) {
     console.warn("⚠️ No text embedding for new item, skipping match.");
@@ -346,7 +289,6 @@ export async function runMatching(newItem?: any) {
   const batch = db.batch();
   let matchCount = 0;
   let belowThresholdCount = 0;
-  const notificationsToSend: Array<{ userId: string; matchData: any; itemType: string }> = [];
 
   await Promise.all(
     oppositeSnap.docs.map(async (doc) => {
@@ -355,7 +297,7 @@ export async function runMatching(newItem?: any) {
 
       const existingMatch = await db
         .collection("ai_matches")
-        .where(isFound ? "foundItemId" : "lostItemId", "==", docId)
+        .where(isFound ? "foundItemId" : "lostItemId", "==", newItem.item_id)
         .where(isFound ? "lostItemId" : "foundItemId", "==", otherId)
         .get();
       if (!existingMatch.empty) return;
@@ -406,11 +348,9 @@ export async function runMatching(newItem?: any) {
       if (confidence >= MATCH_THRESHOLD) {
         const accuracyLevel = getAccuracyLevel(confidence);
         const matchRef = db.collection("ai_matches").doc();
-        const matchId = matchRef.id;
-
         batch.set(matchRef, {
-          lostItemId: isFound ? otherId : docId,
-          foundItemId: isFound ? docId : otherId,
+          lostItemId: isFound ? otherId : newItem.item_id,
+          foundItemId: isFound ? newItem.item_id : otherId,
           lostItem: isFound ? otherItem : newItem,
           foundItem: isFound ? newItem : otherItem,
           confidence,
@@ -418,69 +358,34 @@ export async function runMatching(newItem?: any) {
           textSimilarity: Math.round(textSim * 100),
           imageSimilarity: Math.round(imageSim * 100),
           metadataSimilarity: Math.round(metadataSim * 100),
-          status: getStatusRef("status/Status2"),
+          status: PENDING_STATUS_REF,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-
-        // Update both items' status to Status2 (as reference)
-        const status2Ref = getStatusRef("status/Status2");
-        
-        console.log(`📋 Updating item ${docId} status to Status2`);
-        console.log(`📋 Updating item ${otherId} status to Status2`);
-        
-        batch.update(docRef, { status: status2Ref });
-        batch.update(db.collection("items").doc(otherId), { status: status2Ref });
-
         matchCount++;
         console.log(`✅ Match added with ${accuracyLevel} accuracy (${confidence}%)`);
 
-        // Queue notifications to be sent after batch commit
-        const matchDataForNotif = {
-          matchId,
-          lostItemId: isFound ? otherId : docId,
-          foundItemId: isFound ? docId : otherId,
-          lostItem: isFound ? otherItem : newItem,
-          foundItem: isFound ? newItem : otherItem,
+        // Log notifications to database for both users
+        const lostUserId = isFound ? otherItem.userId : newItem.userId;
+        const foundUserId = isFound ? newItem.userId : otherItem.userId;
+        const lostItemDocId = isFound ? otherId : (newItem.item_id || newItem.itemId);
+        const foundItemDocId = isFound ? (newItem.item_id || newItem.itemId) : otherId;
+        await logNotificationToDatabase(
+          lostUserId,
+          foundUserId,
+          isFound ? otherItem : newItem,
+          isFound ? newItem : otherItem,
+          lostItemDocId,
+          foundItemDocId,
           confidence,
-          accuracyLevel,
-          textSimilarity: Math.round(textSim * 100),
-          imageSimilarity: Math.round(imageSim * 100),
-          metadataSimilarity: Math.round(metadataSim * 100),
-        };
-
-        // Queue notifications to be sent after batch commit
-        if (newItem.userId) {
-          notificationsToSend.push({
-            userId: newItem.userId,
-            matchData: matchDataForNotif,
-            itemType: newItem.type,
-          });
-        }
-        if (otherItem.userId) {
-          notificationsToSend.push({
-            userId: otherItem.userId,
-            matchData: matchDataForNotif,
-            itemType: oppositeType,
-          });
-        }
+          accuracyLevel
+        );
       }
     })
   );
 
   if (matchCount > 0) {
-    try {
-      await batch.commit();
-      console.log(`🎯 ${matchCount} matches saved to Firebase.`);
-      console.log(`📝 Batch commit successful - items should now be Status2`);
-
-      // Send notifications after batch commit
-      for (const notif of notificationsToSend) {
-        await sendMatchNotification(notif.userId, notif.matchData, notif.itemType);
-      }
-    } catch (err) {
-      console.error("❌ Error committing batch:", err);
-      return;
-    }
+    await batch.commit();
+    console.log(`🎯 ${matchCount} matches saved to Firebase.`);
   } else {
     console.log("❌ No valid matches met threshold.");
   }
