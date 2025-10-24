@@ -122,7 +122,11 @@ function StudentDashboard() {
     );
     
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      setNotifications(querySnapshot.size);
+      // Filter out match type notifications (those are in ai_matches)
+      const unreadCount = querySnapshot.docs.filter(doc => 
+        doc.data().type !== 'match'
+      ).length;
+      setNotifications(unreadCount);
     });
     
     return () => unsubscribe();

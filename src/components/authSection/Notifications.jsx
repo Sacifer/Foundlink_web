@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiArrowLeft } from 'react-icons/fi';
 import AuthSidebar from './AuthSidebar.jsx';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 function Notifications() {
@@ -20,17 +20,14 @@ function Notifications() {
   const [readAiMatches, setReadAiMatches] = useState([]);
   const [toast, setToast] = useState(null);
 
-  // Status IDs
   const MATCHED_STATUS_ID = 'Status2';
   const VERIFIED_STATUS_ID = 'Status4';
 
-  // Toast helper
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Get current user
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) setUserId(user.uid);
@@ -42,7 +39,6 @@ function Notifications() {
     return () => unsubscribeAuth();
   }, [auth, navigate]);
 
-  // Fetch AI matches for the logged-in user (status Matched or Verified)
   useEffect(() => {
     if (!userId) return;
 
@@ -51,47 +47,67 @@ function Notifications() {
 
     const matchesQuery = query(
       collection(db, 'ai_matches'),
-      where('status', 'in', [matchedStatusRef, verifiedStatusRef]),
-      orderBy('createdAt', 'desc')
+      where('status', 'in', [matchedStatusRef, verifiedStatusRef])
     );
 
     const unsubscribeMatches = onSnapshot(matchesQuery, (snapshot) => {
       const userMatches = snapshot.docs
-        .map(docSnap => ({ id: docSnap.id, type: 'match', ...docSnap.data() }))
-        .filter(match => match.lostItem?.userId === userId || match.foundItem?.userId === userId);
+        .map(docSnap => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            type: 'match',
+            ...data,
+            lostItem: data.lostItem || {},
+            foundItem: data.foundItem || {}
+          };
+        })
+        .filter(match => match.lostItem?.userId === userId || match.foundItem?.userId === userId)
+        .sort((a, b) => {
+          const aTime = a.createdAt?.toDate?.() || new Date();
+          const bTime = b.createdAt?.toDate?.() || new Date();
+          return bTime - aTime;
+        });
+      
+      console.log('Fetched AI matches:', userMatches);
       setAiMatches(userMatches);
     });
 
     return () => unsubscribeMatches();
   }, [userId]);
 
-  // Fetch normal notifications
   useEffect(() => {
     if (!userId) return;
 
     const notifQuery = query(
       collection(db, 'notifications'),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
 
     const unsubscribeNotifs = onSnapshot(notifQuery, (snapshot) => {
-      const notifs = snapshot.docs.map(docSnap => {
-        const data = docSnap.data();
-        // If the notification has type 'match', keep it as 'match', otherwise mark as 'notif'
-        return { 
-          id: docSnap.id, 
-          type: data.type === 'match' ? 'match' : 'notif', 
-          ...data 
-        };
-      });
+      const notifs = snapshot.docs
+        .map(docSnap => {
+          const data = docSnap.data();
+          return { 
+            id: docSnap.id, 
+            type: 'notif', 
+            ...data 
+          };
+        })
+        .filter(notif => notif.type !== 'match')
+        .sort((a, b) => {
+          const aTime = a.createdAt?.toDate?.() || new Date();
+          const bTime = b.createdAt?.toDate?.() || new Date();
+          return bTime - aTime;
+        });
+      
+      console.log('Fetched regular notifications:', notifs);
       setNotifications(notifs);
     });
 
     return () => unsubscribeNotifs();
   }, [userId]);
 
-  // Merge & sort combined list
   useEffect(() => {
     const combinedList = [...aiMatches, ...notifications].sort((a, b) => {
       const aTime = a.createdAt?.toDate?.() || new Date();
@@ -101,7 +117,6 @@ function Notifications() {
     setCombined(combinedList);
   }, [aiMatches, notifications]);
 
-  // Open modal
   const handleOpenModal = async (item) => {
     setSelectedItem(item);
     setShowModal(true);
@@ -122,13 +137,11 @@ function Notifications() {
     setShowModal(false);
   };
 
-  // Verify AI match
   const handleVerify = async (match) => {
     if (!match) return;
     try {
       const verifiedStatusRef = doc(db, 'status', VERIFIED_STATUS_ID);
       
-      // Update items status
       if (match.lostItemId) {
         await updateDoc(doc(db, 'items', match.lostItemId), { status: verifiedStatusRef });
       }
@@ -136,14 +149,7 @@ function Notifications() {
         await updateDoc(doc(db, 'items', match.foundItemId), { status: verifiedStatusRef });
       }
       
-      // Update ai_match status if it exists in ai_matches collection
-      if (match.matchId) {
-        const aiMatchRef = doc(db, 'ai_matches', match.matchId);
-        await updateDoc(aiMatchRef, { status: verifiedStatusRef });
-      }
-      
-      // Mark notification as read
-      await updateDoc(doc(db, 'notifications', match.id), { read: true });
+      await updateDoc(doc(db, 'ai_matches', match.id), { status: verifiedStatusRef });
       
       showToast('Match verified successfully!', 'success');
       setShowModal(false);
@@ -154,7 +160,6 @@ function Notifications() {
     }
   };
 
-  // Deny AI match
   const handleDeny = async (match) => {
     if (!match) return;
     try {
@@ -181,19 +186,21 @@ function Notifications() {
         </div>
 
         <ListGroup>
-          {combined.length === 0 && <p className="text-muted">No notifications or matches yet.</p>}
-          {combined.map(item => {
+          {combined.filter(item => item.type === 'match' || !item.read).length === 0 && <p className="text-muted">No notifications or matches yet.</p>}
+          {combined.filter(item => item.type === 'match' || !item.read).map(item => {
             if (item.type === 'match') {
               const isOwnerLost = item.lostItem?.userId === userId;
               const matchItem = isOwnerLost ? item.lostItem : item.foundItem;
               const isNew = !readAiMatches.includes(item.id);
+              const isVerified = item.status?.path?.includes('Status4');
               return (
-                <ListGroup.Item key={item.id} action onClick={() => handleOpenModal(item)} className="d-flex justify-content-between align-items-start">
+                <ListGroup.Item key={item.id} action onClick={() => handleOpenModal(item)} className="d-flex justify-content-between align-items-start" style={{ opacity: isVerified ? 0.6 : 1 }}>
                   <div className="ms-2 me-auto">
-                    <div style={{ fontWeight: '700' }}>Your item "{matchItem?.item_name}" has been matched!</div>
-                    <small className="text-muted">Confidence: {item.confidence}%</small>
+                    <div style={{ fontWeight: isVerified ? '400' : '700' }}>Your item "{matchItem?.item_name || 'Unknown'}" has been {isVerified ? 'verified' : 'matched'}!</div>
+                    <small className="text-muted">Confidence: {item.confidence}% ({item.accuracyLevel})</small>
                   </div>
-                  {isNew && <Badge bg="success" pill>New</Badge>}
+                  {isNew && !isVerified && <Badge bg="success" pill>New</Badge>}
+                  {isVerified && <Badge bg="info" pill>Verified</Badge>}
                 </ListGroup.Item>
               );
             } else if (item.type === 'notif') {
@@ -201,7 +208,7 @@ function Notifications() {
                 <ListGroup.Item key={item.id} action onClick={() => handleOpenModal(item)} className="d-flex justify-content-between align-items-start">
                   <div className="ms-2 me-auto">
                     <div style={{ fontWeight: item.read ? '400' : '700' }}>{item.title}</div>
-                    <small className="text-muted">{item.message}</small>
+                    <small className="text-muted">{item.body || item.message}</small>
                   </div>
                   {!item.read && <Badge bg="primary" pill>New</Badge>}
                 </ListGroup.Item>
@@ -211,7 +218,6 @@ function Notifications() {
           })}
         </ListGroup>
 
-        {/* Floating Toast */}
         {toast && (
           <div
             className={`position-fixed top-0 end-0 m-3 alert alert-${toast.type} alert-dismissible fade show`}
@@ -277,18 +283,24 @@ function Notifications() {
                 </Row>
               </>
             ) : (
-              <p>{selectedItem?.message}</p>
+              <p>{selectedItem?.body || selectedItem?.message}</p>
             )}
           </Modal.Body>
           <Modal.Footer className="d-flex justify-content-between">
             {selectedItem?.type === 'match' ? (
               <>
-                <Button variant="danger" onClick={() => handleDeny(selectedItem)} size="lg">
-                  Deny Match
-                </Button>
-                <Button variant="success" onClick={() => handleVerify(selectedItem)} size="lg">
-                  Verify Match
-                </Button>
+                {selectedItem.status?.path?.includes('Status4') ? (
+                  <Button variant="secondary" onClick={handleCloseModal}>Close</Button>
+                ) : (
+                  <>
+                    <Button variant="danger" onClick={() => handleDeny(selectedItem)} size="lg">
+                      Deny Match
+                    </Button>
+                    <Button variant="success" onClick={() => handleVerify(selectedItem)} size="lg">
+                      Verify Match
+                    </Button>
+                  </>
+                )}
               </>
             ) : (
               <Button variant="secondary" onClick={handleCloseModal}>Close</Button>

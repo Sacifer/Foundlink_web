@@ -11,7 +11,6 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
-
 const PENDING_STATUS_REF = db.doc("status/Status1");
 const MATCH_THRESHOLD = Number(process.env.MATCH_THRESHOLD || 70);
 
@@ -348,9 +347,15 @@ export async function runMatching(newItem?: any) {
       if (confidence >= MATCH_THRESHOLD) {
         const accuracyLevel = getAccuracyLevel(confidence);
         const matchRef = db.collection("ai_matches").doc();
+        const matchedStatusRef = db.doc("status/Status2");
+        
+        const lostItemDocId = isFound ? otherId : (newItem.item_id || newItem.itemId);
+        const foundItemDocId = isFound ? (newItem.item_id || newItem.itemId) : otherId;
+        
+        // Save match to ai_matches with Matched status
         batch.set(matchRef, {
-          lostItemId: isFound ? otherId : newItem.item_id,
-          foundItemId: isFound ? newItem.item_id : otherId,
+          lostItemId: lostItemDocId,
+          foundItemId: foundItemDocId,
           lostItem: isFound ? otherItem : newItem,
           foundItem: isFound ? newItem : otherItem,
           confidence,
@@ -358,17 +363,21 @@ export async function runMatching(newItem?: any) {
           textSimilarity: Math.round(textSim * 100),
           imageSimilarity: Math.round(imageSim * 100),
           metadataSimilarity: Math.round(metadataSim * 100),
-          status: PENDING_STATUS_REF,
+          status: matchedStatusRef,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        
+        // Update status for both items to "Matched" AFTER match is created
+        batch.update(db.collection("items").doc(lostItemDocId), { status: matchedStatusRef });
+        batch.update(db.collection("items").doc(foundItemDocId), { status: matchedStatusRef });
+        
         matchCount++;
         console.log(`✅ Match added with ${accuracyLevel} accuracy (${confidence}%)`);
+        console.log(`📝 Status will be updated to "Matched" for both items`);
 
         // Log notifications to database for both users
         const lostUserId = isFound ? otherItem.userId : newItem.userId;
         const foundUserId = isFound ? newItem.userId : otherItem.userId;
-        const lostItemDocId = isFound ? otherId : (newItem.item_id || newItem.itemId);
-        const foundItemDocId = isFound ? (newItem.item_id || newItem.itemId) : otherId;
         await logNotificationToDatabase(
           lostUserId,
           foundUserId,

@@ -1,0 +1,77 @@
+{
+  "ai_matches": [
+    "lostItemId",
+    "foundItemId",
+    "lostItem",
+    "foundItem",
+    "confidence",
+    "accuracyLevel",
+    "textSimilarity",
+    "imageSimilarity",
+    "metadataSimilarity",
+    "status",
+    "createdAt"
+  ],
+  "archived_users": [
+    "id",
+    "role",
+    "createdAt",
+    "email",
+    "username",
+    "verified",
+    "archivedAt"
+  ],
+  "categories": [
+    "cat_name"
+  ],
+  "items": [
+    "item_name",
+    "category",
+    "location",
+    "description",
+    "date_lost_found",
+    "type",
+    "userId",
+    "archived",
+    "created_at",
+    "text_embedding",
+    "status",
+    "tags",
+    "image_url",
+    "image_embedding",
+    "restoredAt"
+  ],
+  "notifications": [
+    "userId",
+    "type",
+    "title",
+    "body",
+    "lostItemId",
+    "foundItemId",
+    "confidence",
+    "accuracyLevel",
+    "read",
+    "createdAt",
+    "item_id",
+    "message",
+    "created_at"
+  ],
+  "status": [
+    "status_name"
+  ],
+  "users": [
+    "id",
+    "createdAt",
+    "verified",
+    "email",
+    "username",
+    "archivedAt",
+    "role",
+    "uid",
+    "birthday",
+    "firstName",
+    "lastName",
+    "program",
+    "department"
+  ]
+}
